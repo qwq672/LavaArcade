@@ -1,0 +1,7 @@
+{
+    "text.lavaarcade.config.title": "LavaArcade 配置",
+    "text.lavaarcade.config.enable_ai": "启用智能 AI 玩家",
+    "text.lavaarcade.config.ai_count": "AI 数量: %d",
+    "text.lavaarcade.button.settings": "LavaArcade 设置",
+    "gui.back": "返回"
+}

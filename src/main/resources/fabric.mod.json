@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "lavaarcade",
+  "version": "${version}",
+  "name": "LavaArcade",
+  "description": "此模组提供了离线小游戏服务器的地图、预设游戏与智能ai玩家，实现离线/人数少的环境下也能轻松游玩。",
+  "authors": [],
+  "contact": {},
+  "license": "Apache-2.0",
+  "icon": "assets/lavaarcade/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "awa.qwq672.lavaarcade.client.LavaarcadeDataGenerator"
+    ],
+    "client": [
+      "awa.qwq672.lavaarcade.client.LavaarcadeClient"
+    ],
+    "main": [
+      "awa.qwq672.lavaarcade.Lavaarcade"
+    ]
+  },
+  "mixins": [
+    "lavaarcade.mixins.json.bak",
+    {
+      "config": "lavaarcade.client.mixins.json.bak",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
