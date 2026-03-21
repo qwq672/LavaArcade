@@ -1,4 +1,9 @@
 {
   "enableAI": true,
-  "aiCount": 11
+  "aiCount": 11,
+  "renderDistanceChunks": 16,
+  "enableCustomSkin": true,
+  "enableDefaultSkin": false,
+  "enableOnlineSkin": true,
+  "defaultSkinChance": 0
 }

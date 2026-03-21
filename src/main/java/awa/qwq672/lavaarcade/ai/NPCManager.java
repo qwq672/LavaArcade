@@ -38,7 +38,7 @@ public class NPCManager {
                     })
             );
 
-            // /askai 命令 - 修复：正确查找 AI
+            // /askai 命令
             dispatcher.register(CommandManager.literal("askai")
                     .then(CommandManager.argument("target", EntityArgumentType.player())
                             .then(CommandManager.argument("task", TextArgumentType.text())
@@ -47,7 +47,6 @@ public class NPCManager {
                                         ServerPlayerEntity target = EntityArgumentType.getPlayer(context, "target");
                                         String task = TextArgumentType.getTextArgument(context, "task").getString();
 
-                                        // 在 aiPlayers 中查找
                                         AIPlayer found = null;
                                         for (AIPlayer ai : aiPlayers) {
                                             if (ai.getEntity().getUuid().equals(target.getUuid())) {
@@ -91,30 +90,28 @@ public class NPCManager {
             }
         });
 
-        // 每 tick 扫描并包装假人，同时更新 AI
+        // 每 tick 扫描并包装假人
         ServerTickEvents.END_SERVER_TICK.register(server -> {
-            // 获取当前渲染距离配置
-            AIConfig.ConfigData config = AIConfig.getConfig();
-            int renderDistance = config.renderDistanceChunks * 16; // 区块转格数（粗略）
-
-            // 扫描所有在线玩家，将新生成的假人包装为 AIPlayer
+            // 扫描所有在线玩家
             for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                // 检查是否已被包装
+                // 如果已经包装过，跳过
                 if (aiPlayers.stream().anyMatch(ai -> ai.getEntity().getUuid().equals(player.getUuid()))) {
                     continue;
                 }
                 String name = player.getName().getString();
-                if (generatedNames.remove(name) && player instanceof EntityPlayerMPFake fakePlayer) {
-                    // 应用皮肤（SkinManager 已实现）
-                    SkinManager.applyRandomSkin(fakePlayer);
-                    AIPlayer ai = new AIPlayer(server.getOverworld(), fakePlayer);
-                    aiPlayers.add(ai);
-                    player.addCommandTag("lavaarcade_ai");
+                // 如果名字在 generatedNames 中，则包装
+                if (generatedNames.remove(name)) {
+                    if (player instanceof EntityPlayerMPFake fakePlayer) {
+                        // 应用皮肤
+                        SkinManager.applyRandomSkin(fakePlayer);
+                        AIPlayer ai = new AIPlayer(server.getOverworld(), fakePlayer);
+                        aiPlayers.add(ai);
+                        // 添加标签，方便识别
+                        player.addCommandTag("lavaarcade_ai");
+                    }
                 }
             }
-
-            // 更新所有 AI（但根据距离决定是否执行 tick？我们只控制可见性，不控制逻辑）
-            // 逻辑仍执行，但可见性由客户端渲染距离控制（见下方客户端修改）
+            // 更新所有 AI
             aiPlayers.forEach(AIPlayer::tick);
         });
     }
