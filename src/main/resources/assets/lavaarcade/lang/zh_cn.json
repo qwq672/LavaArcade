@@ -2,6 +2,11 @@
     "text.lavaarcade.config.title": "LavaArcade 配置",
     "text.lavaarcade.config.enable_ai": "启用智能 AI 玩家",
     "text.lavaarcade.config.ai_count": "AI 数量: %d",
+    "text.lavaarcade.config.render_distance": "AI 显示范围: %d 区块",
+    "text.lavaarcade.config.enable_custom_skin.tooltip": "启用自定义皮肤",
+    "text.lavaarcade.config.enable_default_skin.tooltip": "启用默认皮肤",
+    "text.lavaarcade.config.enable_online_skin.tooltip": "允许从网络获取皮肤/披风",
+    "text.lavaarcade.config.default_skin_chance": "默认皮肤概率: %d%%",
     "text.lavaarcade.button.settings": "LavaArcade 设置",
     "gui.back": "返回"
 }

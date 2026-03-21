@@ -1,7 +1,5 @@
 package awa.qwq672.lavaarcade.ai;
 
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -10,18 +8,23 @@ import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import net.minecraft.entity.Entity;
+
 import java.util.Random;
 
 public class AIPlayer {
     private static final Logger LOGGER = LoggerFactory.getLogger("AIPlayer");
 
     private final ServerWorld world;
-    private final ServerPlayerEntity entity;
+    private final ServerPlayerEntity entity; // 使用 ServerPlayerEntity，但实际应是 Carpet 假人
     private final AIPersonality personality;
     private final Random random = new Random();
     private AIState currentState = AIState.FOLLOW_PLAYER;
     private LivingEntity target;
+
+    // 移动参数
+    private static final double FOLLOW_DISTANCE = 3.0;
+    private static final double STOP_DISTANCE = 1.5;
+    private static final double MOVE_SPEED = 0.3;
 
     public AIPlayer(ServerWorld world, ServerPlayerEntity entity) {
         this.world = world;
@@ -33,21 +36,26 @@ public class AIPlayer {
     public void tick() {
         PlayerEntity nearestPlayer = world.getClosestPlayer(entity, 20.0);
         if (nearestPlayer != null) {
-            // 计算方向向量：从 AI 眼睛指向玩家眼睛
-            Vec3d aiEyes = entity.getEyePos();
-            Vec3d playerEyes = nearestPlayer.getEyePos();
-            Vec3d direction = playerEyes.subtract(aiEyes).normalize();
-
-            // 转换为偏航角 (yaw) 和俯仰角 (pitch)
-            double horizontalDistance = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
+            // 1. 转向玩家
+            Vec3d direction = nearestPlayer.getPos().subtract(entity.getPos()).normalize();
+            double horizontal = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
             float yaw = (float) Math.toDegrees(Math.atan2(-direction.x, direction.z));
-            float pitch = (float) Math.toDegrees(-Math.atan2(direction.y, horizontalDistance));
-
-            // 应用到 AI 实体
+            float pitch = (float) Math.toDegrees(-Math.atan2(direction.y, horizontal));
             entity.setYaw(yaw);
             entity.setPitch(pitch);
-            // 更新头部旋转（可选，使头部也转向）
             entity.headYaw = yaw;
+
+            // 2. 移动逻辑（使用 setVelocity）
+            double dist = entity.distanceTo(nearestPlayer);
+            if (dist > FOLLOW_DISTANCE) {
+                Vec3d moveVec = nearestPlayer.getPos().subtract(entity.getPos()).normalize();
+                entity.setVelocity(moveVec.x * MOVE_SPEED, entity.getVelocity().y, moveVec.z * MOVE_SPEED);
+            } else if (dist < STOP_DISTANCE) {
+                entity.setVelocity(0, entity.getVelocity().y, 0);
+            }
+        } else {
+            // 没有玩家时，缓慢停止
+            entity.setVelocity(entity.getVelocity().multiply(0.8));
         }
     }
 
@@ -56,7 +64,6 @@ public class AIPlayer {
     }
 
     public boolean shouldAcceptRequest(String requestType, String reason) {
-        // 简化版：总是拒绝危险请求
         if (requestType.contains("自杀") || requestType.contains("跳岩浆")) {
             return false;
         }
@@ -64,7 +71,11 @@ public class AIPlayer {
     }
 
     public void executeTask(String task) {
-        sendChatMessage("我收到了任务：" + task + "，但还没学会怎么做。");
+        Text message = Text.literal("§7[AI] " + entity.getName().getString() + "§r: ")
+                .append(Text.literal("我收到了任务："))
+                .append(Text.literal(task))
+                .append(Text.literal("，但还没学会怎么做。"));
+        entity.sendMessage(message);
     }
 
     public ServerPlayerEntity getEntity() {

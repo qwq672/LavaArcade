@@ -13,6 +13,11 @@ public class AIConfig {
     public static class ConfigData {
         public boolean enableAI = true;
         public int aiCount = 1;
+        public int renderDistanceChunks = 8; // 新增
+        public boolean enableCustomSkin = true;
+        public boolean enableDefaultSkin = true;
+        public boolean enableOnlineSkin = false;
+        public int defaultSkinChance = 11;
     }
 
     public static ConfigData getConfig() {
