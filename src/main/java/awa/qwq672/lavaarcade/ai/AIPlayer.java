@@ -22,9 +22,22 @@ public class AIPlayer {
     private LivingEntity target;
 
     // 移动参数
-    private static final double FOLLOW_DISTANCE = 3.0;
     private static final double STOP_DISTANCE = 1.5;
     private static final double MOVE_SPEED = 0.5;
+
+    // 全局移动控制（可通过命令修改）
+    private static boolean moveEnabled = true;
+    private static double followDistance = 3.0;
+
+    public static void setMoveEnabled(boolean enabled) {
+        moveEnabled = enabled;
+        LOGGER.info("AI 移动开关已设置为: {}", enabled);
+    }
+
+    public static void setFollowDistance(double distance) {
+        followDistance = distance;
+        LOGGER.info("AI 跟随距离已设置为: {}", distance);
+    }
 
     public AIPlayer(ServerWorld world, EntityPlayerMPFake fakePlayer) {
         this.world = world;
@@ -36,7 +49,7 @@ public class AIPlayer {
     public void tick() {
         PlayerEntity nearestPlayer = world.getClosestPlayer(fakePlayer, 20.0);
         if (nearestPlayer != null) {
-            // 转向
+            // 转向玩家
             Vec3d direction = nearestPlayer.getPos().subtract(fakePlayer.getPos()).normalize();
             double horizontal = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
             float yaw = (float) Math.toDegrees(Math.atan2(-direction.x, direction.z));
@@ -45,16 +58,20 @@ public class AIPlayer {
             fakePlayer.setPitch(pitch);
             fakePlayer.headYaw = yaw;
 
-            double dist = fakePlayer.distanceTo(nearestPlayer);
-            if (dist > FOLLOW_DISTANCE) {
-                Vec3d move = nearestPlayer.getPos().subtract(fakePlayer.getPos()).normalize();
-                fakePlayer.setVelocity(move.x * MOVE_SPEED, fakePlayer.getVelocity().y, move.z * MOVE_SPEED);
-                fakePlayer.velocityDirty = true;
-            } else if (dist < STOP_DISTANCE) {
-                fakePlayer.setVelocity(0, fakePlayer.getVelocity().y, 0);
-                fakePlayer.velocityDirty = true;
+            // 移动逻辑（仅当移动开启时）
+            if (moveEnabled) {
+                double dist = fakePlayer.distanceTo(nearestPlayer);
+                if (dist > followDistance) {
+                    Vec3d move = nearestPlayer.getPos().subtract(fakePlayer.getPos()).normalize();
+                    fakePlayer.setVelocity(move.x * MOVE_SPEED, fakePlayer.getVelocity().y, move.z * MOVE_SPEED);
+                    fakePlayer.velocityDirty = true;
+                } else if (dist < STOP_DISTANCE) {
+                    fakePlayer.setVelocity(0, fakePlayer.getVelocity().y, 0);
+                    fakePlayer.velocityDirty = true;
+                }
             }
         } else {
+            // 没有玩家时停止
             fakePlayer.setVelocity(fakePlayer.getVelocity().multiply(0.8));
             fakePlayer.velocityDirty = true;
         }

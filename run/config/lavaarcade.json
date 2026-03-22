@@ -5,6 +5,6 @@
   "enableCustomSkin": true,
   "enableDefaultSkin": false,
   "enableOnlineSkin": false,
-  "defaultSkinChance": 0,
+  "defaultSkinChance": 100,
   "enableCape": false
 }

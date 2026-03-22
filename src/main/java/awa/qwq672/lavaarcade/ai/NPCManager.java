@@ -20,8 +20,8 @@ public class NPCManager {
     private static final Set<String> generatedNames = new HashSet<>();
 
     public static void init() {
-        // /spawnai 命令
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+            // /spawnai
             dispatcher.register(CommandManager.literal("spawnai")
                     .executes(context -> {
                         ServerPlayerEntity player = context.getSource().getPlayer();
@@ -43,7 +43,7 @@ public class NPCManager {
                     })
             );
 
-            // /lava reloadai
+            // /lava 子命令
             dispatcher.register(CommandManager.literal("lava")
                     .then(CommandManager.literal("reloadai")
                             .executes(context -> {
@@ -72,6 +72,22 @@ public class NPCManager {
                                 }
                                 return 1;
                             })
+                    )
+                    .then(CommandManager.literal("moveai")
+                            .then(CommandManager.literal("on")
+                                    .executes(context -> {
+                                        AIPlayer.setMoveEnabled(true);
+                                        context.getSource().sendMessage(Text.literal("§aAI 移动已开启"));
+                                        return 1;
+                                    })
+                            )
+                            .then(CommandManager.literal("off")
+                                    .executes(context -> {
+                                        AIPlayer.setMoveEnabled(false);
+                                        context.getSource().sendMessage(Text.literal("§aAI 移动已关闭"));
+                                        return 1;
+                                    })
+                            )
                     )
             );
 
