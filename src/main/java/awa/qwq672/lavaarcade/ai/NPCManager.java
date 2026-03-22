@@ -26,6 +26,11 @@ public class NPCManager {
                     .executes(context -> {
                         ServerPlayerEntity player = context.getSource().getPlayer();
                         if (player != null) {
+                            AIConfig.ConfigData config = AIConfig.getConfig();
+                            if (!config.enableAI) {
+                                context.getSource().sendMessage(Text.literal("§cAI 功能已禁用，无法生成。"));
+                                return 0;
+                            }
                             String name = AINameGenerator.generateName();
                             generatedNames.add(name);
                             player.getServer().getCommandManager().executeWithPrefix(
@@ -38,7 +43,39 @@ public class NPCManager {
                     })
             );
 
-            // /askai 命令
+            // /lava reloadai
+            dispatcher.register(CommandManager.literal("lava")
+                    .then(CommandManager.literal("reloadai")
+                            .executes(context -> {
+                                ServerCommandSource source = context.getSource();
+                                ServerPlayerEntity player = source.getPlayer();
+                                if (player == null) return 0;
+
+                                for (AIPlayer ai : aiPlayers) {
+                                    ai.getEntity().discard();
+                                }
+                                aiPlayers.clear();
+
+                                AIConfig.ConfigData config = AIConfig.getConfig();
+                                if (config.enableAI && config.aiCount > 0) {
+                                    for (int i = 0; i < config.aiCount; i++) {
+                                        String name = AINameGenerator.generateName();
+                                        generatedNames.add(name);
+                                        player.getServer().getCommandManager().executeWithPrefix(
+                                                player.getCommandSource(),
+                                                "player " + name + " spawn"
+                                        );
+                                    }
+                                    source.sendMessage(Text.literal("§a已根据配置重新生成 " + config.aiCount + " 个 AI 玩家。"));
+                                } else {
+                                    source.sendMessage(Text.literal("§cAI 功能未启用或数量为0，已清除所有 AI。"));
+                                }
+                                return 1;
+                            })
+                    )
+            );
+
+            // /askai
             dispatcher.register(CommandManager.literal("askai")
                     .then(CommandManager.argument("target", EntityArgumentType.player())
                             .then(CommandManager.argument("task", TextArgumentType.text())
@@ -54,6 +91,11 @@ public class NPCManager {
                                                 break;
                                             }
                                         }
+                                        if (found == null && target.getCommandTags().contains("lavaarcade_ai")) {
+                                            found = new AIPlayer(target.getServerWorld(), (EntityPlayerMPFake) target);
+                                            aiPlayers.add(found);
+                                        }
+
                                         if (found != null) {
                                             boolean accept = found.shouldAcceptRequest(task, "");
                                             if (accept) {
@@ -72,7 +114,7 @@ public class NPCManager {
             );
         });
 
-        // 玩家加入时自动生成 AI（仅第一次）
+        // 自动生成（仅第一次）
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             if (!hasSpawnedForWorld) {
                 AIConfig.ConfigData config = AIConfig.getConfig();
@@ -90,28 +132,33 @@ public class NPCManager {
             }
         });
 
-        // 每 tick 扫描并包装假人
+        // Tick 更新
         ServerTickEvents.END_SERVER_TICK.register(server -> {
-            // 扫描所有在线玩家
+            AIConfig.ConfigData config = AIConfig.getConfig();
+            if (!config.enableAI) {
+                if (!aiPlayers.isEmpty()) {
+                    for (AIPlayer ai : aiPlayers) {
+                        ai.getEntity().discard();
+                    }
+                    aiPlayers.clear();
+                    generatedNames.clear();
+                }
+                return;
+            }
+
+            // 包装新假人
             for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
-                // 如果已经包装过，跳过
                 if (aiPlayers.stream().anyMatch(ai -> ai.getEntity().getUuid().equals(player.getUuid()))) {
                     continue;
                 }
                 String name = player.getName().getString();
-                // 如果名字在 generatedNames 中，则包装
-                if (generatedNames.remove(name)) {
-                    if (player instanceof EntityPlayerMPFake fakePlayer) {
-                        // 应用皮肤
-                        SkinManager.applyRandomSkin(fakePlayer);
-                        AIPlayer ai = new AIPlayer(server.getOverworld(), fakePlayer);
-                        aiPlayers.add(ai);
-                        // 添加标签，方便识别
-                        player.addCommandTag("lavaarcade_ai");
-                    }
+                if (generatedNames.remove(name) && player instanceof EntityPlayerMPFake fakePlayer) {
+                    SkinManager.applyRandomSkin(fakePlayer);
+                    AIPlayer ai = new AIPlayer(server.getOverworld(), fakePlayer);
+                    aiPlayers.add(ai);
+                    player.addCommandTag("lavaarcade_ai");
                 }
             }
-            // 更新所有 AI
             aiPlayers.forEach(AIPlayer::tick);
         });
     }

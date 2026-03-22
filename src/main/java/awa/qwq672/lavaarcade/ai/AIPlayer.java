@@ -24,7 +24,7 @@ public class AIPlayer {
     // 移动参数
     private static final double FOLLOW_DISTANCE = 3.0;
     private static final double STOP_DISTANCE = 1.5;
-    private static final double MOVE_SPEED = 0.3;
+    private static final double MOVE_SPEED = 0.5;
 
     public AIPlayer(ServerWorld world, EntityPlayerMPFake fakePlayer) {
         this.world = world;
@@ -36,7 +36,7 @@ public class AIPlayer {
     public void tick() {
         PlayerEntity nearestPlayer = world.getClosestPlayer(fakePlayer, 20.0);
         if (nearestPlayer != null) {
-            // 1. 转向玩家
+            // 转向
             Vec3d direction = nearestPlayer.getPos().subtract(fakePlayer.getPos()).normalize();
             double horizontal = Math.sqrt(direction.x * direction.x + direction.z * direction.z);
             float yaw = (float) Math.toDegrees(Math.atan2(-direction.x, direction.z));
@@ -45,17 +45,18 @@ public class AIPlayer {
             fakePlayer.setPitch(pitch);
             fakePlayer.headYaw = yaw;
 
-            // 2. 移动逻辑
             double dist = fakePlayer.distanceTo(nearestPlayer);
             if (dist > FOLLOW_DISTANCE) {
                 Vec3d move = nearestPlayer.getPos().subtract(fakePlayer.getPos()).normalize();
                 fakePlayer.setVelocity(move.x * MOVE_SPEED, fakePlayer.getVelocity().y, move.z * MOVE_SPEED);
+                fakePlayer.velocityDirty = true;
             } else if (dist < STOP_DISTANCE) {
                 fakePlayer.setVelocity(0, fakePlayer.getVelocity().y, 0);
+                fakePlayer.velocityDirty = true;
             }
         } else {
-            // 没有玩家时，缓慢停止
             fakePlayer.setVelocity(fakePlayer.getVelocity().multiply(0.8));
+            fakePlayer.velocityDirty = true;
         }
     }
 
