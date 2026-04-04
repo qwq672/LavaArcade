@@ -1,13 +1,13 @@
 package awa.qwq672.lavaarcade.client;
 
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.gui.screen.option.OptionsScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;
 import net.minecraft.client.toast.SystemToast;
+import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,8 +18,15 @@ public class LavaarcadeClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         LOGGER.info("LavaArcade 客户端初始化...");
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> isInGame = true);
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> isInGame = false);
+
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+            isInGame = true;
+            LOGGER.debug("客户端进入游戏世界");
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            isInGame = false;
+            LOGGER.debug("客户端离开游戏世界");
+        });
 
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (screen instanceof OptionsScreen) {
@@ -35,8 +42,10 @@ public class LavaarcadeClient implements ClientModInitializer {
                                 })
                         .dimensions(10, 10, 120, 20).build();
                 Screens.getButtons(screen).add(settingsButton);
+                LOGGER.debug("在选项界面添加了 LavaArcade 设置按钮");
             }
         });
+
         LOGGER.info("LavaArcade 客户端初始化完成。");
     }
 }

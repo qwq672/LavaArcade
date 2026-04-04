@@ -2,7 +2,6 @@ package awa.qwq672.lavaarcade.ai;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -14,12 +13,11 @@ public class AIConfig {
     public static class ConfigData {
         public boolean enableAI = true;
         public int aiCount = 1;
-        public int renderDistanceChunks = 8;          // 显示范围（区块）
-        public boolean enableCustomSkin = true;       // 启用自定义皮肤
-        public boolean enableDefaultSkin = true;      // 启用默认皮肤
-        public boolean enableOnlineSkin = false;      // 启用网络皮肤（预留）
-        public int defaultSkinChance = 11;            // 默认皮肤概率 (%)
-        public boolean enableCape = true;             // 启用披风
+        public int renderDistanceChunks = 8;
+        public boolean enableCustomSkin = true;
+        public boolean enableDefaultSkin = true;
+        public boolean enableOnlineSkin = false;
+        public int defaultSkinChance = 11;
     }
 
     public static ConfigData getConfig() {

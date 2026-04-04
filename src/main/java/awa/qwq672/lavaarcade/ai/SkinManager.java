@@ -2,6 +2,7 @@ package awa.qwq672.lavaarcade.ai;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
+import net.minecraft.network.packet.s2c.play.PlayerListS2CPacket;
 import net.minecraft.server.network.ServerPlayerEntity;
 
 import javax.imageio.ImageIO;
@@ -12,31 +13,34 @@ import java.io.IOException;
 import java.util.*;
 
 public class SkinManager {
-    private static final File SKIN_FOLDER = new File("lavaarcade/ai_skin");
-    private static final File CAPE_FOLDER = new File("lavaarcade/ai_capes");
+    // 统一皮肤文件夹：LavaArcade/skins
+    private static final File SKIN_FOLDER = new File("LavaArcade/skins");
     private static final Random RANDOM = new Random();
-    private static List<File> skinFiles = new ArrayList<>();
-    private static List<File> capeFiles = new ArrayList<>();
-    private static Map<String, String> skinDataCache = new HashMap<>();
-    private static Map<String, String> capeDataCache = new HashMap<>();
+    private static final List<File> skinFiles = new ArrayList<>();
+    private static final Map<String, String> skinDataCache = new HashMap<>();
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("SkinManager");
 
     public static void init() {
         scanSkinFolder();
-        scanCapeFolder();
     }
 
     public static void scanSkinFolder() {
         skinFiles.clear();
         if (!SKIN_FOLDER.exists() || !SKIN_FOLDER.isDirectory()) {
             SKIN_FOLDER.mkdirs();
+            LOGGER.info("创建皮肤文件夹: {}", SKIN_FOLDER.getAbsolutePath());
             return;
         }
         File[] files = SKIN_FOLDER.listFiles((dir, name) -> name.toLowerCase().endsWith(".png"));
         if (files != null) {
             for (File file : files) {
-                if (isValidSkin(file)) skinFiles.add(file);
+                if (isValidSkin(file)) {
+                    skinFiles.add(file);
+                    LOGGER.debug("找到皮肤文件: {}", file.getName());
+                }
             }
         }
+        LOGGER.info("共加载 {} 个有效皮肤文件", skinFiles.size());
     }
 
     private static boolean isValidSkin(File file) {
@@ -50,53 +54,20 @@ public class SkinManager {
         }
     }
 
-    public static void scanCapeFolder() {
-        capeFiles.clear();
-        if (!CAPE_FOLDER.exists() || !CAPE_FOLDER.isDirectory()) {
-            CAPE_FOLDER.mkdirs();
-            return;
-        }
-        File[] files = CAPE_FOLDER.listFiles((dir, name) -> name.toLowerCase().endsWith(".png"));
-        if (files != null) {
-            for (File file : files) {
-                try {
-                    if (ImageIO.read(file) != null) capeFiles.add(file);
-                } catch (IOException ignored) {}
-            }
-        }
-    }
-
     public static File getRandomSkinFile() {
         return skinFiles.isEmpty() ? null : skinFiles.get(RANDOM.nextInt(skinFiles.size()));
     }
 
-    public static File getRandomCapeFile() {
-        return capeFiles.isEmpty() ? null : capeFiles.get(RANDOM.nextInt(capeFiles.size()));
-    }
-
     public static String getSkinBase64(File skinFile) {
-        return getImageBase64(skinFile, skinDataCache);
-    }
-
-    public static String getCapeBase64(File capeFile) {
-        return getImageBase64(capeFile, capeDataCache);
-    }
-
-    private static String getImageBase64(File file, Map<String, String> cache) {
-        if (file == null) return null;
-        String fileName = file.getName();
-        if (cache.containsKey(fileName)) return cache.get(fileName);
-        try (FileInputStream fis = new FileInputStream(file)) {
+        if (skinFile == null) return null;
+        String fileName = skinFile.getName();
+        if (skinDataCache.containsKey(fileName)) return skinDataCache.get(fileName);
+        try (FileInputStream fis = new FileInputStream(skinFile)) {
             byte[] data = fis.readAllBytes();
             String base64 = Base64.getEncoder().encodeToString(data);
-            String json;
-            if (file.getParentFile().getName().equals("ai_capes")) {
-                json = String.format("{\"textures\":{\"CAPE\":{\"url\":\"data:image/png;base64,%s\"}}}", base64);
-            } else {
-                json = String.format("{\"textures\":{\"SKIN\":{\"url\":\"data:image/png;base64,%s\"}}}", base64);
-            }
+            String json = String.format("{\"textures\":{\"SKIN\":{\"url\":\"data:image/png;base64,%s\"}}}", base64);
             String result = Base64.getEncoder().encodeToString(json.getBytes());
-            cache.put(fileName, result);
+            skinDataCache.put(fileName, result);
             return result;
         } catch (IOException e) {
             e.printStackTrace();
@@ -109,53 +80,59 @@ public class SkinManager {
         GameProfile profile = player.getGameProfile();
         profile.getProperties().removeAll("textures");
 
-        // 皮肤
         if (config.enableCustomSkin && !skinFiles.isEmpty()) {
             File skinFile = getRandomSkinFile();
             if (skinFile != null) {
                 String skinBase64 = getSkinBase64(skinFile);
                 if (skinBase64 != null) {
                     profile.getProperties().put("textures", new Property("textures", skinBase64, ""));
+                    LOGGER.debug("为 AI {} 应用自定义皮肤: {}", player.getName().getString(), skinFile.getName());
+                    refreshSkinForPlayer(player);
+                    return;
                 }
             }
-        } else if (config.enableDefaultSkin && RANDOM.nextInt(100) < config.defaultSkinChance) {
-            // 默认皮肤：清除纹理即可
+        }
+        if (config.enableDefaultSkin && RANDOM.nextInt(100) < config.defaultSkinChance) {
+            LOGGER.debug("为 AI {} 应用默认皮肤", player.getName().getString());
             profile.getProperties().removeAll("textures");
+            refreshSkinForPlayer(player);
         }
+        // 网络皮肤预留
+    }
 
-        // 披风（简单合并，会丢失皮肤，仅演示）
-        if (config.enableCape && !capeFiles.isEmpty()) {
-            File capeFile = getRandomCapeFile();
-            if (capeFile != null) {
-                String capeBase64 = getCapeBase64(capeFile);
-                if (capeBase64 != null) {
-                    profile.getProperties().removeAll("textures");
-                    profile.getProperties().put("textures", new Property("textures", capeBase64, ""));
-                }
+    // 强制客户端刷新皮肤（通过重新发送玩家信息）
+    private static void refreshSkinForPlayer(ServerPlayerEntity player) {
+        if (player.getServer() != null) {
+            // 发送 PlayerListS2CPacket 更新玩家信息，触发皮肤重载
+            player.getServer().getPlayerManager().sendToAll(
+                    new PlayerListS2CPacket(PlayerListS2CPacket.Action.UPDATE_GAME_MODE, player)
+            );
+        }
+    }
+
+    // 安全打开皮肤文件夹（不会崩溃）
+    public static void openSkinFolder() throws Exception {
+        if (java.awt.Desktop.isDesktopSupported()) {
+            java.awt.Desktop desktop = java.awt.Desktop.getDesktop();
+            if (desktop.isSupported(java.awt.Desktop.Action.OPEN)) {
+                desktop.open(SKIN_FOLDER);
+                LOGGER.info("已打开皮肤文件夹: {}", SKIN_FOLDER.getAbsolutePath());
+                return;
             }
         }
-    }
-
-    public static void openSkinFolder() {
-        openFolder(SKIN_FOLDER);
-    }
-
-    public static void openCapeFolder() {
-        openFolder(CAPE_FOLDER);
-    }
-
-    private static void openFolder(File folder) {
-        if (!folder.exists()) folder.mkdirs();
-        if (!java.awt.Desktop.isDesktopSupported()) {
-            System.err.println("无法打开文件夹：当前环境不支持 Desktop API。");
-            return;
+        // 备选方案：使用系统命令
+        String os = System.getProperty("os.name").toLowerCase();
+        String[] cmd;
+        if (os.contains("win")) {
+            cmd = new String[]{"explorer", SKIN_FOLDER.getAbsolutePath()};
+        } else if (os.contains("mac")) {
+            cmd = new String[]{"open", SKIN_FOLDER.getAbsolutePath()};
+        } else if (os.contains("nix") || os.contains("nux")) {
+            cmd = new String[]{"xdg-open", SKIN_FOLDER.getAbsolutePath()};
+        } else {
+            throw new UnsupportedOperationException("不支持的操作系统: " + os);
         }
-        try {
-            java.awt.Desktop.getDesktop().open(folder);
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (java.awt.HeadlessException e) {
-            System.err.println("无法打开文件夹：Headless 环境。");
-        }
+        Runtime.getRuntime().exec(cmd);
+        LOGGER.info("通过系统命令打开皮肤文件夹: {}", SKIN_FOLDER.getAbsolutePath());
     }
 }

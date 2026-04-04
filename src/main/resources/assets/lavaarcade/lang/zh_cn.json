@@ -7,9 +7,8 @@
     "text.lavaarcade.config.enable_default_skin.tooltip": "启用默认皮肤",
     "text.lavaarcade.config.enable_online_skin.tooltip": "允许从网络获取皮肤/披风",
     "text.lavaarcade.config.default_skin_chance": "默认皮肤概率: %d%%",
-    "text.lavaarcade.config.enable_cape.tooltip": "启用自定义披风",
     "text.lavaarcade.config.open_skin_folder": "打开自定义皮肤文件夹",
-    "text.lavaarcade.config.open_cape_folder": "打开自定义披风文件夹",
     "text.lavaarcade.button.settings": "LavaArcade 设置",
-    "gui.back": "返回"
+    "gui.back": "返回",
+    "text.lavaarcade.config.default_skin_chance.tooltip": "默认皮肤出现概率"
 }
