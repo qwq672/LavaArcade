@@ -1,19 +1,19 @@
 package awa.qwq672.lavaarcade.ai;
 
 import carpet.patches.EntityPlayerMPFake;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.block.BlockState;
+import net.minecraft.block.Blocks;
 import net.minecraft.command.argument.EntityArgumentType;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.BlockState;
 
 import java.util.*;
 
@@ -254,6 +254,9 @@ public class NPCManager {
 
         // Tick 更新
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            // 添加这行日志，每次 tick 都输出 aiPlayers 大小
+            LOGGER.info("【调试】Tick 执行中，aiPlayers 数量: {}", aiPlayers.size());
+
             AIConfig.ConfigData config = AIConfig.getConfig();
             if (!config.enableAI) {
                 if (!aiPlayers.isEmpty()) {
@@ -261,7 +264,11 @@ public class NPCManager {
                 }
                 return;
             }
-            aiPlayers.forEach(AIPlayer::tick);
+            // 逐个 tick 并输出
+            aiPlayers.forEach(ai -> {
+                LOGGER.info("【调试】调用 AI {} 的 tick", ai.getEntity().getName().getString());
+                ai.tick();
+            });
         });
     }
 
