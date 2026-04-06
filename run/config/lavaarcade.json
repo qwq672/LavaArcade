@@ -1,6 +1,6 @@
 {
   "enableAI": true,
-  "aiCount": 10,
+  "aiCount": 12,
   "renderDistanceChunks": 16,
   "enableCustomSkin": true,
   "enableDefaultSkin": true,

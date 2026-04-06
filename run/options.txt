@@ -40,8 +40,8 @@ maxFps:120
 graphicsMode:0
 ao:true
 prioritizeChunkUpdates:0
-biomeBlendRadius:2
-renderClouds:"true"
+biomeBlendRadius:0
+renderClouds:"false"
 resourcePacks:["vanilla","fabric"]
 incompatibleResourcePacks:[]
 lastServer:
