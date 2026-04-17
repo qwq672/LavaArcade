@@ -5,5 +5,7 @@
   "enableCustomSkin": true,
   "enableDefaultSkin": true,
   "enableOnlineSkin": true,
-  "defaultSkinChance": 100
+  "defaultSkinChance": 100,
+  "enableSpeech": true,
+  "enableRespawn": true
 }

@@ -30,9 +30,10 @@ public class LavaarcadeConfigScreen extends Screen {
     private boolean enableDefaultSkin = true;
     private boolean enableOnlineSkin = false;
     private int defaultSkinChance = 11;
+    private boolean enableSpeech = true;
+    private boolean enableRespawn = false;
     private TextFieldWidget aiCountField;
 
-    // 滚动相关
     private int scrollY = 0;
     private int maxScroll = 0;
 
@@ -44,6 +45,8 @@ public class LavaarcadeConfigScreen extends Screen {
         public boolean enableDefaultSkin = true;
         public boolean enableOnlineSkin = false;
         public int defaultSkinChance = 11;
+        public boolean enableSpeech = true;
+        public boolean enableRespawn = false;
     }
 
     protected LavaarcadeConfigScreen(Screen parent) {
@@ -63,8 +66,10 @@ public class LavaarcadeConfigScreen extends Screen {
                 enableDefaultSkin = data.enableDefaultSkin;
                 enableOnlineSkin = data.enableOnlineSkin;
                 defaultSkinChance = data.defaultSkinChance;
-                LOGGER.info("加载配置: enableAI={}, aiCount={}, renderDistance={}, enableCustomSkin={}, enableDefaultSkin={}, defaultSkinChance={}",
-                        enableAI, aiCount, renderDistanceChunks, enableCustomSkin, enableDefaultSkin, defaultSkinChance);
+                enableSpeech = data.enableSpeech;
+                enableRespawn = data.enableRespawn;
+                LOGGER.info("加载配置: enableAI={}, aiCount={}, renderDistance={}, enableCustomSkin={}, enableDefaultSkin={}, defaultSkinChance={}, enableSpeech={}, enableRespawn={}",
+                        enableAI, aiCount, renderDistanceChunks, enableCustomSkin, enableDefaultSkin, defaultSkinChance, enableSpeech, enableRespawn);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -82,10 +87,12 @@ public class LavaarcadeConfigScreen extends Screen {
         data.enableDefaultSkin = enableDefaultSkin;
         data.enableOnlineSkin = enableOnlineSkin;
         data.defaultSkinChance = defaultSkinChance;
+        data.enableSpeech = enableSpeech;
+        data.enableRespawn = enableRespawn;
         try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
             GSON.toJson(data, writer);
-            LOGGER.info("保存配置: enableAI={}, aiCount={}, renderDistance={}, enableCustomSkin={}, enableDefaultSkin={}, defaultSkinChance={}",
-                    enableAI, aiCount, renderDistanceChunks, enableCustomSkin, enableDefaultSkin, defaultSkinChance);
+            LOGGER.info("保存配置: enableAI={}, aiCount={}, renderDistance={}, enableCustomSkin={}, enableDefaultSkin={}, defaultSkinChance={}, enableSpeech={}, enableRespawn={}",
+                    enableAI, aiCount, renderDistanceChunks, enableCustomSkin, enableDefaultSkin, defaultSkinChance, enableSpeech, enableRespawn);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -98,14 +105,12 @@ public class LavaarcadeConfigScreen extends Screen {
         int y = 30;
         int step = 25;
 
-        // 启用 AI 开关
         this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableAI)
                 .build(centerX - 100, y, 200, 20,
                         Text.translatable("text.lavaarcade.config.enable_ai"),
                         (button, value) -> { enableAI = value; saveConfig(); }));
         y += step;
 
-        // AI 数量输入框
         this.aiCountField = new TextFieldWidget(this.textRenderer, centerX - 100, y, 200, 20, Text.literal("AI 数量"));
         this.aiCountField.setText(String.valueOf(aiCount));
         this.aiCountField.setChangedListener(text -> {
@@ -114,7 +119,6 @@ public class LavaarcadeConfigScreen extends Screen {
         this.addDrawableChild(this.aiCountField);
         y += step;
 
-        // 显示范围滑块
         this.addDrawableChild(new SliderWidget(centerX - 100, y, 200, 20,
                 Text.translatable("text.lavaarcade.config.render_distance", renderDistanceChunks),
                 renderDistanceChunks / 16.0) {
@@ -123,7 +127,6 @@ public class LavaarcadeConfigScreen extends Screen {
         });
         y += step;
 
-        // 自定义皮肤开关
         this.addDrawableChild(ButtonWidget.builder(Text.literal(enableCustomSkin ? "C" : "C§c(关)"), button -> {
             enableCustomSkin = !enableCustomSkin; saveConfig(); button.setMessage(Text.literal(enableCustomSkin ? "C" : "C§c(关)"));
         }).dimensions(centerX - 100, y, 20, 20).build());
@@ -131,7 +134,6 @@ public class LavaarcadeConfigScreen extends Screen {
                 .dimensions(centerX - 80, y, 180, 20).build());
         y += step;
 
-        // 默认皮肤开关
         this.addDrawableChild(ButtonWidget.builder(Text.literal(enableDefaultSkin ? "D" : "D§c(关)"), button -> {
             enableDefaultSkin = !enableDefaultSkin; saveConfig(); button.setMessage(Text.literal(enableDefaultSkin ? "D" : "D§c(关)"));
         }).dimensions(centerX - 100, y, 20, 20).build());
@@ -139,7 +141,6 @@ public class LavaarcadeConfigScreen extends Screen {
                 .dimensions(centerX - 80, y, 180, 20).build());
         y += step;
 
-        // 网络皮肤开关（预留）
         this.addDrawableChild(ButtonWidget.builder(Text.literal(enableOnlineSkin ? "N" : "N§c(关)"), button -> {
             enableOnlineSkin = !enableOnlineSkin; saveConfig(); button.setMessage(Text.literal(enableOnlineSkin ? "N" : "N§c(关)"));
         }).dimensions(centerX - 100, y, 20, 20).build());
@@ -147,7 +148,6 @@ public class LavaarcadeConfigScreen extends Screen {
                 .dimensions(centerX - 80, y, 180, 20).build());
         y += step;
 
-        // 默认皮肤概率滑块
         this.addDrawableChild(new SliderWidget(centerX - 100, y, 200, 20,
                 Text.translatable("text.lavaarcade.config.default_skin_chance", defaultSkinChance),
                 defaultSkinChance / 100.0) {
@@ -156,23 +156,26 @@ public class LavaarcadeConfigScreen extends Screen {
         });
         y += step;
 
-        // 打开皮肤文件夹按钮
-        this.addDrawableChild(ButtonWidget.builder(Text.translatable("text.lavaarcade.config.open_skin_folder"), button -> {
-                    try {
-                        SkinManager.openSkinFolder();
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                })
+        this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableSpeech)
+                .build(centerX - 100, y, 200, 20,
+                        Text.translatable("text.lavaarcade.config.enable_speech"),
+                        (button, value) -> { enableSpeech = value; saveConfig(); }));
+        y += step;
+
+        this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableRespawn)
+                .build(centerX - 100, y, 200, 20,
+                        Text.translatable("text.lavaarcade.config.enable_respawn"),
+                        (button, value) -> { enableRespawn = value; saveConfig(); }));
+        y += step;
+
+        this.addDrawableChild(ButtonWidget.builder(Text.translatable("text.lavaarcade.config.open_skin_folder"), button -> SkinManager.openSkinFolder())
                 .dimensions(centerX - 100, y, 200, 20).build());
         y += step;
 
-        // 返回按钮
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.back"), button -> this.client.setScreen(this.parent))
                 .dimensions(centerX - 50, y + 10, 100, 20).build());
         y += 30;
 
-        // 计算最大滚动距离
         int contentHeight = y;
         int viewportHeight = this.height - 40;
         maxScroll = Math.max(0, contentHeight - viewportHeight);
@@ -181,12 +184,18 @@ public class LavaarcadeConfigScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         this.renderBackground(context);
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFF);
-
         context.getMatrices().push();
         context.getMatrices().translate(0, -scrollY, 0);
         int translatedMouseY = mouseY + scrollY;
         super.render(context, mouseX, translatedMouseY, delta);
         context.getMatrices().pop();
+
+        // 绘制滚动条
+        if (maxScroll > 0) {
+            int scrollBarHeight = (int) ((this.height - 40) * ((float) this.height / (this.height + maxScroll)));
+            int scrollBarY = 20 + (int) ((float) scrollY / maxScroll * (this.height - 40 - scrollBarHeight));
+            context.fill(this.width - 10, scrollBarY, this.width - 5, scrollBarY + scrollBarHeight, 0xFFAAAAAA);
+        }
     }
 
     public boolean mouseScrolled(double mouseX, double mouseY, double amount, double delta) {

@@ -2,7 +2,6 @@ package awa.qwq672.lavaarcade.ai;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
@@ -19,6 +18,8 @@ public class AIConfig {
         public boolean enableDefaultSkin = true;
         public boolean enableOnlineSkin = false;
         public int defaultSkinChance = 11;
+        public boolean enableSpeech = true;
+        public boolean enableRespawn = false;   // 新增：死亡重生开关
     }
 
     public static ConfigData getConfig() {

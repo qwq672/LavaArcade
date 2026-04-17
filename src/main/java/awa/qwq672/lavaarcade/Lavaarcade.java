@@ -6,7 +6,6 @@ import awa.qwq672.lavaarcade.ai.NPCManager;
 import awa.qwq672.lavaarcade.ai.SkinManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,7 +18,6 @@ public class Lavaarcade implements ModInitializer {
     public void onInitialize() {
         Path gameDir = FabricLoader.getInstance().getGameDir();
         SKINS_DIR = gameDir.resolve("LavaArcade").resolve("skins");
-
         try {
             Files.createDirectories(SKINS_DIR);
             LOGGER.info("LavaArcade 皮肤文件夹: {}", SKINS_DIR.toAbsolutePath());
@@ -27,9 +25,7 @@ public class Lavaarcade implements ModInitializer {
             LOGGER.error("无法创建皮肤文件夹", e);
         }
 
-        // 初始化皮肤管理器
         SkinManager.init();
-        // 初始化AI管理器
         NPCManager.init();
 
         LOGGER.info("LavaArcade 主模组初始化完成");

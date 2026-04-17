@@ -1,7 +1,6 @@
 package awa.qwq672.lavaarcade.ai;
 
 import net.minecraft.server.network.ServerPlayerEntity;
-
 import java.io.File;
 import java.io.IOException;
 
@@ -13,9 +12,7 @@ public class SkinManager {
         if (!SKIN_FOLDER.exists()) SKIN_FOLDER.mkdirs();
     }
 
-    // 不再应用自定义皮肤，避免签名验证失败
     public static void applyRandomSkin(ServerPlayerEntity player) {
-        // 清空纹理，使用默认皮肤
         player.getGameProfile().getProperties().removeAll("textures");
         LOGGER.debug("AI {} 使用默认皮肤", player.getName().getString());
     }
