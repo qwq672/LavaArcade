@@ -1,5 +1,6 @@
 package awa.qwq672.lavaarcade;
 
+import awa.qwq672.lavaarcade.ai.SpeechManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import awa.qwq672.lavaarcade.ai.NPCManager;

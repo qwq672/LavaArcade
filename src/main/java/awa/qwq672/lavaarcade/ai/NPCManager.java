@@ -6,7 +6,9 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -17,11 +19,13 @@ import net.minecraft.block.BlockState;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.world.World;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Item;
+import net.minecraft.util.Identifier;
+import net.minecraft.registry.Registries;
 
 import java.util.*;
 import java.util.stream.Collectors;
-
-import awa.qwq672.lavaarcade.ai.SpeechManager;
 
 public class NPCManager {
     private static final List<AIPlayer> aiPlayers = new ArrayList<>();
@@ -29,6 +33,7 @@ public class NPCManager {
     private static final Set<String> generatedNames = new HashSet<>();
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("NPCManager");
     private static boolean serverStarted = false;
+    private static final Map<UUID, Long> pendingGiveAll = new HashMap<>();
 
     // ==================== 辅助方法 ====================
     private static double findSafeY(ServerWorld world, int x, int z, double fallbackY) {
@@ -173,16 +178,115 @@ public class NPCManager {
         source.sendMessage(Text.literal("§e/lava setfollow <距离> §7- 设置跟随距离 (1-20)"));
         source.sendMessage(Text.literal("§e/lava tools true/false §7- 允许/禁止假人使用工具"));
         source.sendMessage(Text.literal("§e/lava toolblocks true/false §7- 允许/禁止假人使用功能方块"));
-        source.sendMessage(Text.literal("§e/lava pf <假人名字或@all> <动作> §7- 控制假人行为"));
+        source.sendMessage(Text.literal("§e/lava inventory <假人> §7- 打开假人背包（开发中）"));
+        source.sendMessage(Text.literal("§e/lava giveitem <假人> [物品] [数量] [玩家] §7- 假人给予物品"));
+        source.sendMessage(Text.literal("§e/lava pf <假人名字或#all> <动作> §7- 控制假人行为"));
         source.sendMessage(Text.literal("§e  动作: follow, go_alone, stop, continue, friendly"));
-        source.sendMessage(Text.literal("§e  例如: /lava pf @all follow"));
+        source.sendMessage(Text.literal("§e  例如: /lava pf #all follow"));
         source.sendMessage(Text.literal("§e/spawnai §7- 手动生成一个假人"));
         return 1;
     }
 
-    // ==================== 初始化 ====================
+    // 执行 giveitem 核心逻辑
+    private static int executeGiveItem(CommandContext<ServerCommandSource> context, String targetName, String itemId, int amount, ServerPlayerEntity targetPlayer) {
+        if (targetPlayer == null) {
+            context.getSource().sendMessage(Text.literal("§c目标玩家不存在"));
+            return 0;
+        }
+        if ("#all".equalsIgnoreCase(targetName)) {
+            UUID playerId = context.getSource().getPlayer().getUuid();
+            long now = System.currentTimeMillis();
+            Long pending = pendingGiveAll.get(playerId);
+            if (pending == null || (now - pending) > 30000) {
+                pendingGiveAll.put(playerId, now);
+                context.getSource().sendMessage(Text.literal("§e警告：批量给所有假人物品可能造成大量物品转移。请在30秒内再次执行此命令以确认。"));
+                return 1;
+            } else {
+                pendingGiveAll.remove(playerId);
+                for (AIPlayer ai : aiPlayers) {
+                    giveItemToAI(ai, itemId, amount, targetPlayer, context);
+                }
+                context.getSource().sendMessage(Text.literal("§a已向所有假人执行给予物品命令"));
+                return 1;
+            }
+        }
+        AIPlayer ai = aiPlayers.stream()
+                .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(targetName))
+                .findFirst().orElse(null);
+        if (ai == null) {
+            context.getSource().sendMessage(Text.literal("§c未找到 AI: " + targetName));
+            return 0;
+        }
+        return giveItemToAI(ai, itemId, amount, targetPlayer, context);
+    }
+
+    private static int giveItemToAI(AIPlayer ai, String itemId, int amount, ServerPlayerEntity targetPlayer, CommandContext<ServerCommandSource> context) {
+        ItemStack sourceStack;
+        if (itemId == null) {
+            sourceStack = ai.getEntity().getMainHandStack().copy();
+            if (sourceStack.isEmpty()) {
+                context.getSource().sendMessage(Text.literal("§c假人 " + ai.getEntity().getName().getString() + " 手上没有物品"));
+                return 0;
+            }
+            amount = (amount == -1) ? sourceStack.getCount() : amount;
+        } else {
+            Item item = Registries.ITEM.get(new Identifier(itemId));
+            if (item == null || item == net.minecraft.item.Items.AIR) {
+                context.getSource().sendMessage(Text.literal("§c无效的物品ID: " + itemId));
+                return 0;
+            }
+            sourceStack = new ItemStack(item, amount);
+        }
+        int total = 0;
+        for (int i = 0; i < ai.getEntity().getInventory().size(); i++) {
+            ItemStack stack = ai.getEntity().getInventory().getStack(i);
+            if (stack.getItem() == sourceStack.getItem()) {
+                total += stack.getCount();
+            }
+        }
+        int giveAmount = (amount == -1) ? sourceStack.getCount() : Math.min(amount, total);
+        if (total == 0) {
+            context.getSource().sendMessage(Text.literal("§c假人 " + ai.getEntity().getName().getString() + " 没有 " + sourceStack.getItem().getName().getString()));
+            return 0;
+        }
+        if (giveAmount < amount && amount != -1) {
+            context.getSource().sendMessage(Text.literal("§e假人只有 " + total + " 个，已全部给予"));
+        }
+        int remaining = giveAmount;
+        for (int i = 0; i < ai.getEntity().getInventory().size() && remaining > 0; i++) {
+            ItemStack stack = ai.getEntity().getInventory().getStack(i);
+            if (stack.getItem() == sourceStack.getItem()) {
+                int take = Math.min(remaining, stack.getCount());
+                stack.decrement(take);
+                remaining -= take;
+            }
+        }
+        ItemStack giveStack = sourceStack.copy();
+        giveStack.setCount(giveAmount);
+        targetPlayer.getInventory().insertStack(giveStack);
+        context.getSource().sendMessage(Text.literal("§a假人 " + ai.getEntity().getName().getString() + " 给予了 " + targetPlayer.getName().getString() + " " + giveAmount + " 个 " + sourceStack.getItem().getName().getString()));
+        return 1;
+    }
+
+    private static int executePfAction(CommandContext<ServerCommandSource> context, String target, String action) {
+        if ("#all".equalsIgnoreCase(target)) {
+            aiPlayers.forEach(ai -> applyActionToAI(ai, action));
+            context.getSource().sendMessage(Text.literal("§a已对所有 AI 执行 " + action));
+            return 1;
+        }
+        AIPlayer ai = aiPlayers.stream()
+                .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(target))
+                .findFirst().orElse(null);
+        if (ai == null) {
+            context.getSource().sendMessage(Text.literal("§c未找到 AI: " + target));
+            return 0;
+        }
+        applyActionToAI(ai, action);
+        context.getSource().sendMessage(Text.literal("§a已命令 " + target + " " + action));
+        return 1;
+    }
+
     public static void init() {
-        // 服务器启动时生成AI
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             serverStarted = true;
             server.execute(() -> {
@@ -193,18 +297,20 @@ public class NPCManager {
             });
         });
 
-        // 玩家加入时补足AI
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.getPlayer();
             if (player instanceof EntityPlayerMPFake) return;
             if (serverStarted) {
-                server.execute(() -> generateAIsForPlayer(player));
+                server.execute(() -> {
+                    try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                    generateAIsForPlayer(player);
+                });
             }
         });
 
-        // 命令注册
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             dispatcher.register(CommandManager.literal("spawnai")
+                    .requires(s -> s.hasPermissionLevel(2))
                     .executes(context -> {
                         ServerPlayerEntity player = context.getSource().getPlayer();
                         if (player != null) {
@@ -229,6 +335,7 @@ public class NPCManager {
             );
 
             dispatcher.register(CommandManager.literal("lava")
+                    .requires(s -> s.hasPermissionLevel(2))
                     .executes(ctx -> showHelp(ctx.getSource()))
                     .then(CommandManager.literal("help").executes(ctx -> showHelp(ctx.getSource())))
                     .then(CommandManager.literal("reloadai")
@@ -309,115 +416,102 @@ public class NPCManager {
                                     })
                             )
                     )
+                    .then(CommandManager.literal("inventory")
+                            .then(CommandManager.argument("target", StringArgumentType.word())
+                                    .suggests((context, builder) -> net.minecraft.command.CommandSource.suggestMatching(getAIPlayerNames(), builder))
+                                    .executes(context -> {
+                                        String targetName = StringArgumentType.getString(context, "target");
+                                        AIPlayer ai = aiPlayers.stream()
+                                                .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(targetName))
+                                                .findFirst().orElse(null);
+                                        if (ai == null) {
+                                            context.getSource().sendMessage(Text.literal("§c未找到 AI: " + targetName));
+                                            return 0;
+                                        }
+                                        // 背包功能暂未完全实现，显示提示
+                                        context.getSource().sendMessage(Text.literal("§a背包功能开发中，暂未完全实现"));
+                                        return 1;
+                                    })
+                            )
+                    )
+                    .then(CommandManager.literal("giveitem")
+                            .then(CommandManager.argument("target", StringArgumentType.word())
+                                    .suggests((context, builder) -> net.minecraft.command.CommandSource.suggestMatching(getAIPlayerNames(), builder))
+                                    .executes(context -> {
+                                        String targetName = StringArgumentType.getString(context, "target");
+                                        return executeGiveItem(context, targetName, null, -1, context.getSource().getPlayer());
+                                    })
+                                    .then(CommandManager.argument("item", StringArgumentType.word())
+                                            .executes(context -> {
+                                                String targetName = StringArgumentType.getString(context, "target");
+                                                String itemId = StringArgumentType.getString(context, "item");
+                                                return executeGiveItem(context, targetName, itemId, -1, context.getSource().getPlayer());
+                                            })
+                                            .then(CommandManager.argument("amount", IntegerArgumentType.integer(1, 2304))
+                                                    .executes(context -> {
+                                                        String targetName = StringArgumentType.getString(context, "target");
+                                                        String itemId = StringArgumentType.getString(context, "item");
+                                                        int amount = IntegerArgumentType.getInteger(context, "amount");
+                                                        return executeGiveItem(context, targetName, itemId, amount, context.getSource().getPlayer());
+                                                    })
+                                                    .then(CommandManager.argument("player", StringArgumentType.word())
+                                                            .suggests((context, builder) -> net.minecraft.command.CommandSource.suggestMatching(context.getSource().getServer().getPlayerManager().getPlayerNames(), builder))
+                                                            .executes(context -> {
+                                                                String targetName = StringArgumentType.getString(context, "target");
+                                                                String itemId = StringArgumentType.getString(context, "item");
+                                                                int amount = IntegerArgumentType.getInteger(context, "amount");
+                                                                String playerName = StringArgumentType.getString(context, "player");
+                                                                ServerPlayerEntity targetPlayer = context.getSource().getServer().getPlayerManager().getPlayer(playerName);
+                                                                if (targetPlayer == null) {
+                                                                    context.getSource().sendMessage(Text.literal("§c玩家 " + playerName + " 不在线"));
+                                                                    return 0;
+                                                                }
+                                                                return executeGiveItem(context, targetName, itemId, amount, targetPlayer);
+                                                            })
+                                                    )
+                                            )
+                                    )
+                            )
+                    )
                     .then(CommandManager.literal("pf")
                             .executes(ctx -> {
-                                ctx.getSource().sendMessage(Text.literal("§c用法: /lava pf <假人名字或@all> <动作>"));
+                                ctx.getSource().sendMessage(Text.literal("§c用法: /lava pf <假人名字或#all> <动作>"));
                                 return 0;
                             })
                             .then(CommandManager.argument("target", StringArgumentType.word())
                                     .suggests((context, builder) -> {
                                         List<String> names = new ArrayList<>(getAIPlayerNames());
-                                        names.add("@all");
+                                        names.add("#all");
                                         return net.minecraft.command.CommandSource.suggestMatching(names, builder);
                                     })
                                     .then(CommandManager.literal("follow")
                                             .executes(context -> {
                                                 String target = StringArgumentType.getString(context, "target");
-                                                if ("@all".equalsIgnoreCase(target)) {
-                                                    aiPlayers.forEach(ai -> applyActionToAI(ai, "follow"));
-                                                    context.getSource().sendMessage(Text.literal("§a已对所有 AI 执行 follow"));
-                                                } else {
-                                                    AIPlayer ai = aiPlayers.stream()
-                                                            .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(target))
-                                                            .findFirst().orElse(null);
-                                                    if (ai == null) {
-                                                        context.getSource().sendMessage(Text.literal("§c未找到 AI: " + target));
-                                                        return 0;
-                                                    }
-                                                    applyActionToAI(ai, "follow");
-                                                    context.getSource().sendMessage(Text.literal("§a已命令 " + target + " follow"));
-                                                }
-                                                return 1;
+                                                return executePfAction(context, target, "follow");
                                             })
                                     )
                                     .then(CommandManager.literal("go_alone")
                                             .executes(context -> {
                                                 String target = StringArgumentType.getString(context, "target");
-                                                if ("@all".equalsIgnoreCase(target)) {
-                                                    aiPlayers.forEach(ai -> applyActionToAI(ai, "go_alone"));
-                                                    context.getSource().sendMessage(Text.literal("§a已对所有 AI 执行 go_alone"));
-                                                } else {
-                                                    AIPlayer ai = aiPlayers.stream()
-                                                            .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(target))
-                                                            .findFirst().orElse(null);
-                                                    if (ai == null) {
-                                                        context.getSource().sendMessage(Text.literal("§c未找到 AI: " + target));
-                                                        return 0;
-                                                    }
-                                                    applyActionToAI(ai, "go_alone");
-                                                    context.getSource().sendMessage(Text.literal("§a已命令 " + target + " go_alone"));
-                                                }
-                                                return 1;
+                                                return executePfAction(context, target, "go_alone");
                                             })
                                     )
                                     .then(CommandManager.literal("stop")
                                             .executes(context -> {
                                                 String target = StringArgumentType.getString(context, "target");
-                                                if ("@all".equalsIgnoreCase(target)) {
-                                                    aiPlayers.forEach(ai -> applyActionToAI(ai, "stop"));
-                                                    context.getSource().sendMessage(Text.literal("§a已对所有 AI 执行 stop"));
-                                                } else {
-                                                    AIPlayer ai = aiPlayers.stream()
-                                                            .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(target))
-                                                            .findFirst().orElse(null);
-                                                    if (ai == null) {
-                                                        context.getSource().sendMessage(Text.literal("§c未找到 AI: " + target));
-                                                        return 0;
-                                                    }
-                                                    applyActionToAI(ai, "stop");
-                                                    context.getSource().sendMessage(Text.literal("§a已命令 " + target + " stop"));
-                                                }
-                                                return 1;
+                                                return executePfAction(context, target, "stop");
                                             })
                                     )
                                     .then(CommandManager.literal("continue")
                                             .executes(context -> {
                                                 String target = StringArgumentType.getString(context, "target");
-                                                if ("@all".equalsIgnoreCase(target)) {
-                                                    aiPlayers.forEach(ai -> applyActionToAI(ai, "continue"));
-                                                    context.getSource().sendMessage(Text.literal("§a已对所有 AI 执行 continue"));
-                                                } else {
-                                                    AIPlayer ai = aiPlayers.stream()
-                                                            .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(target))
-                                                            .findFirst().orElse(null);
-                                                    if (ai == null) {
-                                                        context.getSource().sendMessage(Text.literal("§c未找到 AI: " + target));
-                                                        return 0;
-                                                    }
-                                                    applyActionToAI(ai, "continue");
-                                                    context.getSource().sendMessage(Text.literal("§a已命令 " + target + " continue"));
-                                                }
-                                                return 1;
+                                                return executePfAction(context, target, "continue");
                                             })
                                     )
                                     .then(CommandManager.literal("friendly")
                                             .executes(context -> {
                                                 String target = StringArgumentType.getString(context, "target");
-                                                if ("@all".equalsIgnoreCase(target)) {
-                                                    aiPlayers.forEach(ai -> applyActionToAI(ai, "friendly"));
-                                                    context.getSource().sendMessage(Text.literal("§a已对所有 AI 执行 friendly"));
-                                                } else {
-                                                    AIPlayer ai = aiPlayers.stream()
-                                                            .filter(a -> a.getEntity().getName().getString().equalsIgnoreCase(target))
-                                                            .findFirst().orElse(null);
-                                                    if (ai == null) {
-                                                        context.getSource().sendMessage(Text.literal("§c未找到 AI: " + target));
-                                                        return 0;
-                                                    }
-                                                    applyActionToAI(ai, "friendly");
-                                                    context.getSource().sendMessage(Text.literal("§a已命令 " + target + " friendly"));
-                                                }
-                                                return 1;
+                                                return executePfAction(context, target, "friendly");
                                             })
                                     )
                             )
@@ -425,7 +519,6 @@ public class NPCManager {
             );
         });
 
-        // Tick 更新
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             AIConfig.ConfigData config = AIConfig.getConfig();
             if (!config.enableAI) {
@@ -440,7 +533,6 @@ public class NPCManager {
             SpeechManager.tick(server, aiPlayers);
         });
 
-        // 伤害事件：重生和反击
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {
             if (entity instanceof EntityPlayerMPFake) {
                 EntityPlayerMPFake fake = (EntityPlayerMPFake) entity;
@@ -453,7 +545,6 @@ public class NPCManager {
                 }
 
                 AIConfig.ConfigData config = AIConfig.getConfig();
-                // 只有致命伤害且开启重生时才拦截
                 if (config.enableRespawn && entity.getHealth() - amount <= 0) {
                     entity.setHealth(20.0f);
                     entity.clearStatusEffects();
@@ -462,7 +553,6 @@ public class NPCManager {
                     ((ServerPlayerEntity) entity).sendMessage(Text.literal("§e你重生了！"));
                     return false;
                 }
-                // 非致命伤害或未开启重生，允许伤害正常进行
                 return true;
             }
             return true;

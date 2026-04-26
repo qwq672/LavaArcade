@@ -36,6 +36,7 @@ public class LavaarcadeConfigScreen extends Screen {
 
     private int scrollY = 0;
     private int maxScroll = 0;
+    private int contentHeight = 0;
 
     public static class ConfigData {
         public boolean enableAI = true;
@@ -68,13 +69,9 @@ public class LavaarcadeConfigScreen extends Screen {
                 defaultSkinChance = data.defaultSkinChance;
                 enableSpeech = data.enableSpeech;
                 enableRespawn = data.enableRespawn;
-                LOGGER.info("加载配置: enableAI={}, aiCount={}, renderDistance={}, enableCustomSkin={}, enableDefaultSkin={}, defaultSkinChance={}, enableSpeech={}, enableRespawn={}",
-                        enableAI, aiCount, renderDistanceChunks, enableCustomSkin, enableDefaultSkin, defaultSkinChance, enableSpeech, enableRespawn);
             } catch (IOException e) {
                 e.printStackTrace();
             }
-        } else {
-            LOGGER.info("配置文件不存在，使用默认配置");
         }
     }
 
@@ -91,8 +88,6 @@ public class LavaarcadeConfigScreen extends Screen {
         data.enableRespawn = enableRespawn;
         try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
             GSON.toJson(data, writer);
-            LOGGER.info("保存配置: enableAI={}, aiCount={}, renderDistance={}, enableCustomSkin={}, enableDefaultSkin={}, defaultSkinChance={}, enableSpeech={}, enableRespawn={}",
-                    enableAI, aiCount, renderDistanceChunks, enableCustomSkin, enableDefaultSkin, defaultSkinChance, enableSpeech, enableRespawn);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -100,7 +95,6 @@ public class LavaarcadeConfigScreen extends Screen {
 
     protected void init() {
         super.init();
-
         int centerX = this.width / 2;
         int y = 30;
         int step = 25;
@@ -127,6 +121,7 @@ public class LavaarcadeConfigScreen extends Screen {
         });
         y += step;
 
+        // 自定义皮肤
         this.addDrawableChild(ButtonWidget.builder(Text.literal(enableCustomSkin ? "C" : "C§c(关)"), button -> {
             enableCustomSkin = !enableCustomSkin; saveConfig(); button.setMessage(Text.literal(enableCustomSkin ? "C" : "C§c(关)"));
         }).dimensions(centerX - 100, y, 20, 20).build());
@@ -134,6 +129,7 @@ public class LavaarcadeConfigScreen extends Screen {
                 .dimensions(centerX - 80, y, 180, 20).build());
         y += step;
 
+        // 默认皮肤
         this.addDrawableChild(ButtonWidget.builder(Text.literal(enableDefaultSkin ? "D" : "D§c(关)"), button -> {
             enableDefaultSkin = !enableDefaultSkin; saveConfig(); button.setMessage(Text.literal(enableDefaultSkin ? "D" : "D§c(关)"));
         }).dimensions(centerX - 100, y, 20, 20).build());
@@ -141,6 +137,7 @@ public class LavaarcadeConfigScreen extends Screen {
                 .dimensions(centerX - 80, y, 180, 20).build());
         y += step;
 
+        // 网络皮肤
         this.addDrawableChild(ButtonWidget.builder(Text.literal(enableOnlineSkin ? "N" : "N§c(关)"), button -> {
             enableOnlineSkin = !enableOnlineSkin; saveConfig(); button.setMessage(Text.literal(enableOnlineSkin ? "N" : "N§c(关)"));
         }).dimensions(centerX - 100, y, 20, 20).build());
@@ -148,6 +145,7 @@ public class LavaarcadeConfigScreen extends Screen {
                 .dimensions(centerX - 80, y, 180, 20).build());
         y += step;
 
+        // 默认皮肤概率
         this.addDrawableChild(new SliderWidget(centerX - 100, y, 200, 20,
                 Text.translatable("text.lavaarcade.config.default_skin_chance", defaultSkinChance),
                 defaultSkinChance / 100.0) {
@@ -156,64 +154,81 @@ public class LavaarcadeConfigScreen extends Screen {
         });
         y += step;
 
+        // 发言开关
         this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableSpeech)
                 .build(centerX - 100, y, 200, 20,
                         Text.translatable("text.lavaarcade.config.enable_speech"),
                         (button, value) -> { enableSpeech = value; saveConfig(); }));
         y += step;
 
+        // 重生开关
         this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableRespawn)
                 .build(centerX - 100, y, 200, 20,
                         Text.translatable("text.lavaarcade.config.enable_respawn"),
                         (button, value) -> { enableRespawn = value; saveConfig(); }));
         y += step;
 
+        // 打开皮肤文件夹
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("text.lavaarcade.config.open_skin_folder"), button -> SkinManager.openSkinFolder())
                 .dimensions(centerX - 100, y, 200, 20).build());
         y += step;
 
+        // 返回按钮
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("gui.back"), button -> this.client.setScreen(this.parent))
                 .dimensions(centerX - 50, y + 10, 100, 20).build());
         y += 30;
 
-        int contentHeight = y;
+        contentHeight = y;
         int viewportHeight = this.height - 40;
         maxScroll = Math.max(0, contentHeight - viewportHeight);
     }
 
+    @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         this.renderBackground(context);
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 10, 0xFFFFFF);
+
+        // 应用滚动偏移
         context.getMatrices().push();
         context.getMatrices().translate(0, -scrollY, 0);
+        // 手动渲染所有子组件（因为 super.render 也会绘制，但会偏移？为了避免重复，我们调用 super 但需要调整鼠标坐标）
+        // 更简单：遍历所有子组件，手动渲染并处理点击，但为了省事，我们仍然使用 super.render 并传入调整后的鼠标Y
         int translatedMouseY = mouseY + scrollY;
         super.render(context, mouseX, translatedMouseY, delta);
         context.getMatrices().pop();
 
         // 绘制滚动条
         if (maxScroll > 0) {
-            int scrollBarHeight = (int) ((this.height - 40) * ((float) this.height / (this.height + maxScroll)));
-            int scrollBarY = 20 + (int) ((float) scrollY / maxScroll * (this.height - 40 - scrollBarHeight));
-            context.fill(this.width - 10, scrollBarY, this.width - 5, scrollBarY + scrollBarHeight, 0xFFAAAAAA);
+            int viewHeight = this.height - 40;
+            int barHeight = Math.max(20, viewHeight * viewHeight / contentHeight);
+            int barY = 20 + (scrollY * (viewHeight - barHeight) / maxScroll);
+            context.fill(this.width - 10, barY, this.width - 5, barY + barHeight, 0xFFAAAAAA);
         }
     }
 
-    public boolean mouseScrolled(double mouseX, double mouseY, double amount, double delta) {
-        scrollY -= (int) (amount * 20);
-        scrollY = Math.max(0, Math.min(scrollY, maxScroll));
-        return true;
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+        if (maxScroll > 0) {
+            scrollY -= (int) (amount * 20);
+            scrollY = Math.max(0, Math.min(scrollY, maxScroll));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, amount);
     }
 
+    @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         double translatedY = mouseY + scrollY;
         return super.mouseClicked(mouseX, translatedY, button);
     }
 
+    @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
         double translatedY = mouseY + scrollY;
         return super.mouseDragged(mouseX, translatedY, button, deltaX, deltaY);
     }
 
+    @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         double translatedY = mouseY + scrollY;
         return super.mouseReleased(mouseX, translatedY, button);

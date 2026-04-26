@@ -1,0 +1,15 @@
+{
+  "gui.back": "Back",
+  "text.lavaarcade.button.settings": "LavaArcade Settings",
+  "text.lavaarcade.config.ai_count": "AI Count: %d",
+  "text.lavaarcade.config.default_skin_chance": "Default skin chance: %d%%",
+  "text.lavaarcade.config.enable_ai": "Enable AI Players",
+  "text.lavaarcade.config.enable_custom_skin.tooltip": "Enable custom skins",
+  "text.lavaarcade.config.enable_default_skin.tooltip": "Enable default skins",
+  "text.lavaarcade.config.enable_online_skin.tooltip": "Allow online skins/capes",
+  "text.lavaarcade.config.enable_speech": "Enable FakePlayer Speech",
+  "text.lavaarcade.config.open_skin_folder": "Open custom skin folder",
+  "text.lavaarcade.config.render_distance": "AI Render Distance: %d chunks",
+  "text.lavaarcade.config.title": "LavaArcade Config",
+  "text.lavaarcade.config.enable_respawn": "FakePlayer Respawn"
+}

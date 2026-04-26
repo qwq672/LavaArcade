@@ -31,8 +31,8 @@ glintStrength:0.75
 damageTiltStrength:1.0
 highContrast:false
 gamma:0.5
-renderDistance:2
-simulationDistance:6
+renderDistance:3
+simulationDistance:5
 entityDistanceScaling:1.0
 guiScale:0
 particles:0
@@ -46,7 +46,7 @@ resourcePacks:["vanilla","fabric"]
 incompatibleResourcePacks:[]
 lastServer:
 lang:zh_cn
-soundDevice:""
+soundDevice:"OpenAL Soft on EDIFIER MR3BT (Realtek High Definition Audio)"
 chatVisibility:0
 chatOpacity:1.0
 chatLineSpacing:0.0
@@ -120,7 +120,7 @@ key_key.hotbar.8:key.keyboard.8
 key_key.hotbar.9:key.keyboard.9
 key_key.modmenu.open_menu:key.keyboard.unknown
 soundCategory_master:1.0
-soundCategory_music:1.0
+soundCategory_music:0.0
 soundCategory_record:1.0
 soundCategory_weather:1.0
 soundCategory_block:1.0

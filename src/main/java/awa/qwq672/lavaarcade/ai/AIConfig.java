@@ -19,7 +19,7 @@ public class AIConfig {
         public boolean enableOnlineSkin = false;
         public int defaultSkinChance = 11;
         public boolean enableSpeech = true;
-        public boolean enableRespawn = false;   // 新增：死亡重生开关
+        public boolean enableRespawn = false;
     }
 
     public static ConfigData getConfig() {

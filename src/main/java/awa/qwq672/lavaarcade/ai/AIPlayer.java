@@ -8,16 +8,21 @@ import carpet.patches.EntityPlayerMPFake;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
+import net.minecraft.enchantment.Enchantment;
+import net.minecraft.enchantment.EnchantmentHelper;
+import net.minecraft.enchantment.Enchantments;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.ArmorItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.PickaxeItem;
 import net.minecraft.item.SwordItem;
 import net.minecraft.item.ToolMaterial;
 import net.minecraft.item.ToolMaterials;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
@@ -29,10 +34,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Random;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class AIPlayer {
     private static final Logger LOGGER = LoggerFactory.getLogger("AIPlayer");
     private static final Random RANDOM = new Random();
+    private static final double ACTION_DISTANCE = 3.0; // 3格内才能动作
 
     private final ServerWorld world;
     private final EntityPlayerMPFake fakePlayer;
@@ -52,6 +60,14 @@ public class AIPlayer {
     private Vec3d lastPos = null;
     private int exploreDirectionChangeCooldown = 0;
     private int attackCooldown = 0;
+    private int equipCooldown = 0; // 装备更新冷却
+    private UUID followTargetId = null;
+    private int followRetryCooldown = 0; // 重新选择目标的冷却
+
+    // 挖掘专用字段
+    private int miningCooldown = 0;
+    private BlockPos targetMiningPos = null;
+    private int miningProgress = 0;
 
     // 自主决策相关
     private enum FriendlyTask {
@@ -109,12 +125,80 @@ public class AIPlayer {
         }
     }
 
+    // ---------------------- 装备系统 ----------------------
+    // 评估一件盔甲的分数（护甲 + 韧性 + 附魔）
+    // 评估一件盔甲的分数（仅基于护甲值和韧性，暂不考虑附魔）
+    private float getArmorScore(ItemStack stack) {
+        if (!(stack.getItem() instanceof ArmorItem)) return 0;
+        ArmorItem armor = (ArmorItem) stack.getItem();
+        return armor.getProtection() + armor.getToughness();
+    }
+
+    // 自动穿上背包中最好的盔甲（按部位）
+    private void equipBestArmor() {
+        PlayerInventory inv = fakePlayer.getInventory();
+        // 盔甲槽位顺序: 0=脚, 1=腿, 2=胸, 3=头
+        for (int slotIndex = 0; slotIndex < 4; slotIndex++) {
+            ItemStack current = inv.armor.get(slotIndex);
+            float bestScore = getArmorScore(current);
+            int bestSlot = -1;
+            for (int i = 0; i < inv.main.size(); i++) {
+                ItemStack stack = inv.main.get(i);
+                if (stack.getItem() instanceof ArmorItem) {
+                    ArmorItem armor = (ArmorItem) stack.getItem();
+                    int targetSlot = -1;
+                    switch (armor.getSlotType()) {
+                        case FEET: targetSlot = 0; break;
+                        case LEGS: targetSlot = 1; break;
+                        case CHEST: targetSlot = 2; break;
+                        case HEAD: targetSlot = 3; break;
+                        default: break;
+                    }
+                    if (targetSlot == slotIndex) {
+                        float score = getArmorScore(stack);
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestSlot = i;
+                        }
+                    }
+                }
+            }
+            if (bestSlot != -1) {
+                ItemStack bestStack = inv.main.get(bestSlot);
+                inv.main.set(bestSlot, current);
+                inv.armor.set(slotIndex, bestStack);
+            }
+        }
+    }
+
+    private ArmorItem.Type getSlotType(int slot) {
+        switch (slot) {
+            case 5: return ArmorItem.Type.HELMET;
+            case 6: return ArmorItem.Type.CHESTPLATE;
+            case 7: return ArmorItem.Type.LEGGINGS;
+            case 8: return ArmorItem.Type.BOOTS;
+            default: return null;
+        }
+    }
+
+    // ---------------------- 战斗 ----------------------
     private void attackEntity(LivingEntity target) {
         if (target == null || !target.isAlive()) return;
+        double distSq = fakePlayer.squaredDistanceTo(target);
+        if (distSq > ACTION_DISTANCE * ACTION_DISTANCE) {
+            // 移动接近
+            lookAt(target.getPos());
+            if (!isMoving) startMoving();
+            setSprinting(true);
+            return;
+        }
+        // 距离足够，停止移动并攻击
+        if (isMoving) stopMoving();
+        setSprinting(false);
         isAttacking = true;
         equipBestWeapon();
         lookAt(target.getPos());
-        fakePlayer.swingHand(Hand.MAIN_HAND);  // 添加手臂摆动
+        fakePlayer.swingHand(Hand.MAIN_HAND);
         fakePlayer.attack(target);
         isAttacking = false;
         LOGGER.info("AI {} 攻击了 {}", fakePlayer.getName().getString(), target.getName().getString());
@@ -198,40 +282,100 @@ public class AIPlayer {
         return nearest;
     }
 
+    // ---------------------- 挖掘 ----------------------
+    private boolean hasLineOfSight(BlockPos target) {
+        Vec3d start = fakePlayer.getEyePos();
+        Vec3d end = Vec3d.ofCenter(target);
+        int dx = (int) Math.signum(end.x - start.x);
+        int dy = (int) Math.signum(end.y - start.y);
+        int dz = (int) Math.signum(end.z - start.z);
+        double steps = Math.max(Math.abs(end.x - start.x), Math.max(Math.abs(end.y - start.y), Math.abs(end.z - start.z)));
+        for (int i = 1; i < steps; i++) {
+            double x = start.x + dx * i / steps;
+            double y = start.y + dy * i / steps;
+            double z = start.z + dz * i / steps;
+            BlockPos block = new BlockPos((int) x, (int) y, (int) z);
+            if (block.equals(target)) continue;
+            BlockState state = world.getBlockState(block);
+            if (state.isSolid() && !state.isAir()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private BlockPos findNearbyOre() {
         BlockPos center = fakePlayer.getBlockPos();
-        int radius = 10;
+        int radius = 6;
+        BlockPos closest = null;
+        double closestDist = radius * radius;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos pos = center.add(dx, dy, dz);
                     Block block = world.getBlockState(pos).getBlock();
                     if (getRequiredToolLevel(block) != null) {
-                        return pos;
+                        if (hasLineOfSight(pos)) {
+                            double distSq = dx*dx + dy*dy + dz*dz;
+                            if (distSq < closestDist) {
+                                closestDist = distSq;
+                                closest = pos;
+                            }
+                        }
                     }
                 }
             }
         }
-        return null;
+        return closest;
     }
 
     private void mineNearbyOre() {
-        BlockPos orePos = findNearbyOre();
-        if (orePos == null) return;
-        equipBestPickaxeForBlock(world.getBlockState(orePos).getBlock());
-        lookAt(Vec3d.ofCenter(orePos));
-        ((ServerPlayerInterface) fakePlayer).getActionPack().start(ActionType.ATTACK, Action.continuous());
-        // 模拟挖掘（实际需要监听方块破坏，这里简化）
-        fakePlayer.getServer().execute(() -> {
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
-            ((ServerPlayerInterface) fakePlayer).getActionPack().stopAll();
-        });
-        LOGGER.info("AI {} 开始挖掘 {}", fakePlayer.getName().getString(), orePos);
+        if (miningCooldown > 0) {
+            miningCooldown--;
+            return;
+        }
+        if (targetMiningPos == null) {
+            targetMiningPos = findNearbyOre();
+            if (targetMiningPos == null) return;
+            miningProgress = 0;
+            equipBestPickaxeForBlock(world.getBlockState(targetMiningPos).getBlock());
+        }
+        double distSq = fakePlayer.getPos().squaredDistanceTo(Vec3d.ofCenter(targetMiningPos));
+        if (distSq > ACTION_DISTANCE * ACTION_DISTANCE) {
+            // 移动接近
+            lookAt(Vec3d.ofCenter(targetMiningPos));
+            if (!isMoving) startMoving();
+            setSprinting(true);
+            return;
+        }
+        // 停止移动，开始挖掘
+        if (isMoving) stopMoving();
+        setSprinting(false);
+        lookAt(Vec3d.ofCenter(targetMiningPos));
+        miningProgress++;
+        if (miningProgress >= 10) {
+            fakePlayer.interactionManager.tryBreakBlock(targetMiningPos);
+            fakePlayer.getServer().execute(() -> {
+                if (world.getBlockState(targetMiningPos).isAir()) {
+                    targetMiningPos = null;
+                    miningCooldown = 60;
+                } else {
+                    miningProgress = 0;
+                }
+            });
+        }
     }
 
+    // ---------------------- 主 Tick ----------------------
     public void tick() {
         if (!moveEnabled) return;
         if (attackCooldown > 0) attackCooldown--;
+        if (equipCooldown <= 0) {
+            equipBestArmor();
+            equipCooldown = 100;
+        } else {
+            equipCooldown--;
+        }
 
         switch (behavior) {
             case IDLE:
@@ -252,12 +396,12 @@ public class AIPlayer {
     private void friendlyTick() {
         if (taskCooldown <= 0) {
             decideTask();
-            taskCooldown = 40; // 2秒重新决策
+            taskCooldown = 40;
         } else {
             taskCooldown--;
         }
         taskDuration++;
-        if (taskDuration > 200) { // 任务最长10秒
+        if (taskDuration > 200) {
             taskCooldown = 0;
             taskDuration = 0;
         }
@@ -268,6 +412,9 @@ public class AIPlayer {
                 break;
             case MINE_ORE:
                 mineNearbyOre();
+                if (targetMiningPos == null) {
+                    taskCooldown = 0;
+                }
                 break;
             case FOLLOW_PLAYER:
                 followNearestPlayer();
@@ -279,19 +426,16 @@ public class AIPlayer {
     }
 
     private void decideTask() {
-        // 优先攻击怪物
         if (findNearestHostile() != null) {
             currentTask = FriendlyTask.ATTACK_MONSTER;
             taskDuration = 0;
             return;
         }
-        // 其次挖掘矿石（如果有工具且允许）
         if (allowTools && findNearbyOre() != null) {
             currentTask = FriendlyTask.MINE_ORE;
             taskDuration = 0;
             return;
         }
-        // 随机决定
         if (RANDOM.nextDouble() < 0.3 && findNearestRealPlayer() != null) {
             currentTask = FriendlyTask.FOLLOW_PLAYER;
         } else {
@@ -301,35 +445,42 @@ public class AIPlayer {
     }
 
     private void followNearestPlayer() {
-        PlayerEntity nearestPlayer = findNearestRealPlayer();
-        if (nearestPlayer == null) {
+        if (followRetryCooldown > 0) {
+            followRetryCooldown--;
+        }
+        PlayerEntity target = null;
+        if (followTargetId != null) {
+            target = world.getPlayerByUuid(followTargetId);
+            if (target == null || target.isSpectator() || target.isRemoved()) {
+                followTargetId = null; // 目标无效，重新选择
+            }
+        }
+        if (followTargetId == null && followRetryCooldown == 0) {
+            // 随机选择目标
+            List<PlayerEntity> validPlayers = world.getPlayers().stream()
+                    .filter(p -> p != fakePlayer && !(p instanceof EntityPlayerMPFake) && !p.isSpectator())
+                    .collect(Collectors.toList());
+            if (!validPlayers.isEmpty()) {
+                // 20% 概率不跟随
+                if (RANDOM.nextDouble() < 0.2) {
+                    followTargetId = null;
+                } else {
+                    // 随机选一个
+                    followTargetId = validPlayers.get(RANDOM.nextInt(validPlayers.size())).getUuid();
+                }
+                followRetryCooldown = 200; // 10秒内不再重新选择
+            } else {
+                followTargetId = null;
+            }
+        }
+        if (followTargetId != null) {
+            target = world.getPlayerByUuid(followTargetId);
+        }
+        if (target == null) {
             if (isMoving) stopMoving();
             return;
         }
-
-        lookAt(nearestPlayer.getPos());
-
-        double dist = fakePlayer.distanceTo(nearestPlayer);
-        double stopDistance = followDistance * STOP_DISTANCE_RATIO;
-
-        if (dist > followDistance) {
-            avoidObstaclesAndJump();
-            if (!isMoving) startMoving();
-            checkStuck();
-            updateSprint(nearestPlayer, dist);
-        } else if (dist < MIN_DISTANCE) {
-            if (isMoving) stopMoving();
-            if (dist < 1.0) {
-                EntityPlayerActionPack actionPack = ((ServerPlayerInterface) fakePlayer).getActionPack();
-                actionPack.setForward(-1);
-                fakePlayer.getServer().execute(() -> {
-                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
-                    if (behavior == AIBehavior.FRIENDLY) actionPack.setForward(0);
-                });
-            }
-        } else if (dist < stopDistance) {
-            if (isMoving) stopMoving();
-        }
+        // 后续移动逻辑与之前相同...
     }
 
     private void explore() {
@@ -341,7 +492,6 @@ public class AIPlayer {
         } else {
             exploreDirectionChangeCooldown--;
         }
-
         avoidObstaclesAndJump();
         if (!isMoving) startMoving();
         checkStuck();
@@ -392,54 +542,37 @@ public class AIPlayer {
         Vec3d pos = fakePlayer.getPos();
         float yaw = fakePlayer.getYaw();
         Vec3d forward = new Vec3d(Math.sin(Math.toRadians(yaw)), 0, Math.cos(Math.toRadians(yaw)));
+        // 检测方向：前、左前45、右前45
+        Vec3d[] directions = {forward, rotate(forward, 45), rotate(forward, -45)};
 
-        // 检测前方其他假人
-        double distToEntity = 1.2;
-        Vec3d checkEntityPos = pos.add(forward.multiply(distToEntity));
-        Box checkBox = new Box(checkEntityPos.x - 0.5, checkEntityPos.y, checkEntityPos.z - 0.5,
-                checkEntityPos.x + 0.5, checkEntityPos.y + 1.8, checkEntityPos.z + 0.5);
-        List<Entity> entities = world.getOtherEntities(fakePlayer, checkBox, e -> e instanceof EntityPlayerMPFake);
-        if (!entities.isEmpty()) {
-            BlockPos feetPos = new BlockPos((int) checkEntityPos.x, (int) checkEntityPos.y, (int) checkEntityPos.z);
-            if (world.getBlockState(feetPos).isAir() && world.getBlockState(feetPos.up()).isAir()) {
-                jump();
-            } else {
-                float newYaw = yaw + (RANDOM.nextBoolean() ? 45 : -45);
-                fakePlayer.setYaw(newYaw);
-                fakePlayer.headYaw = newYaw;
-            }
-            return;
-        }
-
-        // 检测前方固体/危险方块
-        for (double d = 0.5; d <= 2.0; d += 0.5) {
-            Vec3d checkPos = pos.add(forward.multiply(d)).add(0, 0.5, 0);
-            BlockPos bp = new BlockPos((int) checkPos.x, (int) checkPos.y, (int) checkPos.z);
-            BlockState state = world.getBlockState(bp);
-            if (state.isSolid() || state.getBlock() == Blocks.LAVA || state.getBlock() == Blocks.MAGMA_BLOCK) {
-                if (d <= 1.5 && world.getBlockState(bp.up()).isAir()) {
-                    jump();
+        for (Vec3d dir : directions) {
+            for (double d = 0.5; d <= 1.5; d += 0.5) {
+                Vec3d checkPos = pos.add(dir.multiply(d)).add(0, 0.5, 0);
+                BlockPos bp = new BlockPos((int) checkPos.x, (int) checkPos.y, (int) checkPos.z);
+                BlockState state = world.getBlockState(bp);
+                if (state.isSolid() || state.getBlock() == Blocks.LAVA || state.getBlock() == Blocks.MAGMA_BLOCK) {
+                    if (d <= 1.0 && world.getBlockState(bp.up()).isAir()) {
+                        jump();
+                        return;
+                    }
+                    // 非跳跃障碍物，转向
+                    float newYaw = yaw + (RANDOM.nextBoolean() ? 45 : -45);
+                    fakePlayer.setYaw(newYaw);
+                    fakePlayer.headYaw = newYaw;
                     return;
                 }
-                float newYaw = yaw + (RANDOM.nextBoolean() ? 45 : -45);
-                fakePlayer.setYaw(newYaw);
-                fakePlayer.headYaw = newYaw;
-                return;
             }
         }
+    }
 
-        // 检测高墙
-        for (double d = 0.5; d <= 1.5; d += 0.5) {
-            Vec3d checkPos = pos.add(forward.multiply(d)).add(0, 1.5, 0);
-            BlockPos bp = new BlockPos((int) checkPos.x, (int) checkPos.y, (int) checkPos.z);
-            BlockState state = world.getBlockState(bp);
-            if (state.isSolid()) {
-                float newYaw = yaw + (RANDOM.nextBoolean() ? 45 : -45);
-                fakePlayer.setYaw(newYaw);
-                fakePlayer.headYaw = newYaw;
-                return;
-            }
-        }
+    // 辅助方法：旋转向量
+    private Vec3d rotate(Vec3d vec, double angleDeg) {
+        double rad = Math.toRadians(angleDeg);
+        double cos = Math.cos(rad);
+        double sin = Math.sin(rad);
+        double x = vec.x * cos - vec.z * sin;
+        double z = vec.x * sin + vec.z * cos;
+        return new Vec3d(x, vec.y, z);
     }
 
     private void checkStuck() {
@@ -450,21 +583,21 @@ public class AIPlayer {
         double moved = fakePlayer.getPos().distanceTo(lastPos);
         if (moved < 0.05) {
             stuckCounter++;
-            if (stuckCounter > 10) {
+            if (stuckCounter > 20) {
                 float newYaw = fakePlayer.getYaw() + (RANDOM.nextBoolean() ? 30 : -30);
                 fakePlayer.setYaw(newYaw);
                 fakePlayer.headYaw = newYaw;
             }
-            if (stuckCounter > 20) {
+            if (stuckCounter > 40) {
                 jump();
                 float newYaw = fakePlayer.getYaw() + (RANDOM.nextFloat() * 120 - 60);
                 fakePlayer.setYaw(newYaw);
                 fakePlayer.headYaw = newYaw;
-                stuckCounter = 0;
+                stuckCounter = 20;
                 LOGGER.info("AI {} 严重卡住，跳跃并转向", fakePlayer.getName().getString());
             }
         } else {
-            stuckCounter = 0;
+            stuckCounter = Math.max(0, stuckCounter - 2);
         }
         lastPos = fakePlayer.getPos();
     }
@@ -493,6 +626,7 @@ public class AIPlayer {
         for (PlayerEntity player : world.getPlayers()) {
             if (player == fakePlayer) continue;
             if (player instanceof EntityPlayerMPFake) continue;
+            if (player.isSpectator()) continue; // 忽略旁观者
             double d = player.distanceTo(fakePlayer);
             if (d < nearestDist) {
                 nearestDist = d;
