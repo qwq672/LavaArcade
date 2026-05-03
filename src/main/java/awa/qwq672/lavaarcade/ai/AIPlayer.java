@@ -32,9 +32,7 @@ import net.minecraft.util.math.Vec3d;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class AIPlayer {
@@ -123,7 +121,11 @@ public class AIPlayer {
             attackEntity(attacker);
             attackCooldown = 20;
         }
+        if (RANDOM.nextDouble() < 0.5) {
+            SpeechManager.say(this, "combat.hurt", Collections.emptyMap());
+        }
     }
+    public AIPersonality getPersonality() { return personality; }
 
     // ---------------------- 装备系统 ----------------------
     // 评估一件盔甲的分数（护甲 + 韧性 + 附魔）
@@ -202,6 +204,10 @@ public class AIPlayer {
         fakePlayer.attack(target);
         isAttacking = false;
         LOGGER.info("AI {} 攻击了 {}", fakePlayer.getName().getString(), target.getName().getString());
+        // 在攻击时随机说一句话
+        if (RANDOM.nextDouble() < 0.3) {
+            SpeechManager.say(this, "combat.attack", Collections.emptyMap());
+        }
     }
 
     private void equipBestWeapon() {
@@ -339,6 +345,10 @@ public class AIPlayer {
             if (targetMiningPos == null) return;
             miningProgress = 0;
             equipBestPickaxeForBlock(world.getBlockState(targetMiningPos).getBlock());
+            // 挖掘开始发言
+            Map<String,String> placeholders = new HashMap<>();
+            placeholders.put("ore", world.getBlockState(targetMiningPos).getBlock().getName().getString());
+            SpeechManager.say(this, "mining.start", placeholders);
         }
         double distSq = fakePlayer.getPos().squaredDistanceTo(Vec3d.ofCenter(targetMiningPos));
         if (distSq > ACTION_DISTANCE * ACTION_DISTANCE) {
@@ -452,23 +462,20 @@ public class AIPlayer {
         if (followTargetId != null) {
             target = world.getPlayerByUuid(followTargetId);
             if (target == null || target.isSpectator() || target.isRemoved()) {
-                followTargetId = null; // 目标无效，重新选择
+                followTargetId = null;
             }
         }
         if (followTargetId == null && followRetryCooldown == 0) {
-            // 随机选择目标
             List<PlayerEntity> validPlayers = world.getPlayers().stream()
                     .filter(p -> p != fakePlayer && !(p instanceof EntityPlayerMPFake) && !p.isSpectator())
                     .collect(Collectors.toList());
             if (!validPlayers.isEmpty()) {
-                // 20% 概率不跟随
                 if (RANDOM.nextDouble() < 0.2) {
                     followTargetId = null;
                 } else {
-                    // 随机选一个
                     followTargetId = validPlayers.get(RANDOM.nextInt(validPlayers.size())).getUuid();
                 }
-                followRetryCooldown = 200; // 10秒内不再重新选择
+                followRetryCooldown = 200;
             } else {
                 followTargetId = null;
             }
@@ -480,7 +487,29 @@ public class AIPlayer {
             if (isMoving) stopMoving();
             return;
         }
-        // 后续移动逻辑与之前相同...
+
+        // 移动逻辑
+        lookAt(target.getPos());
+        double dist = fakePlayer.distanceTo(target);
+        double stopDistance = followDistance * STOP_DISTANCE_RATIO;
+        if (dist > followDistance) {
+            avoidObstaclesAndJump();
+            if (!isMoving) startMoving();
+            checkStuck();
+            updateSprint(target, dist);
+        } else if (dist < MIN_DISTANCE) {
+            if (isMoving) stopMoving();
+            if (dist < 1.0) {
+                EntityPlayerActionPack actionPack = ((ServerPlayerInterface) fakePlayer).getActionPack();
+                actionPack.setForward(-1);
+                fakePlayer.getServer().execute(() -> {
+                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+                    if (behavior == AIBehavior.FRIENDLY) actionPack.setForward(0);
+                });
+            }
+        } else if (dist < stopDistance) {
+            if (isMoving) stopMoving();
+        }
     }
 
     private void explore() {

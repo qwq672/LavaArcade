@@ -28,6 +28,7 @@ public class Lavaarcade implements ModInitializer {
 
         SkinManager.init();
         NPCManager.init();
+        SpeechManager.init();
 
         LOGGER.info("LavaArcade 主模组初始化完成");
     }
