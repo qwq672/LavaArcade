@@ -8,9 +8,6 @@ import carpet.patches.EntityPlayerMPFake;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.enchantment.Enchantments;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.Monster;
@@ -22,7 +19,6 @@ import net.minecraft.item.PickaxeItem;
 import net.minecraft.item.SwordItem;
 import net.minecraft.item.ToolMaterial;
 import net.minecraft.item.ToolMaterials;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
@@ -58,14 +54,18 @@ public class AIPlayer {
     private Vec3d lastPos = null;
     private int exploreDirectionChangeCooldown = 0;
     private int attackCooldown = 0;
-    private int equipCooldown = 0; // 装备更新冷却
+    private int equipCooldown = 0;
     private UUID followTargetId = null;
-    private int followRetryCooldown = 0; // 重新选择目标的冷却
+    private int followRetryCooldown = 0;
 
     // 挖掘专用字段
     private int miningCooldown = 0;
     private BlockPos targetMiningPos = null;
     private int miningProgress = 0;
+
+    // ONNX 模块
+    private ONNXDecisionModule onnxModule;
+    private static boolean enableONNX = false;
 
     // 自主决策相关
     private enum FriendlyTask {
@@ -76,11 +76,23 @@ public class AIPlayer {
     private int taskDuration = 0;
     private boolean isAttacking = false;
 
+    // ==================== 构造与静态方法 ====================
     public AIPlayer(ServerWorld world, EntityPlayerMPFake fakePlayer) {
         this.world = world;
         this.fakePlayer = fakePlayer;
         this.personality = AIPersonality.random();
         LOGGER.info("AI {} 性格: {}", fakePlayer.getName().getString(), personality.displayName);
+
+        if (enableONNX) {
+            try {
+                this.onnxModule = ONNXDecisionModule.createDefault();
+                if (this.onnxModule != null) {
+                    LOGGER.info("AI {} 已加载 ONNX 模块", fakePlayer.getName().getString());
+                }
+            } catch (Exception e) {
+                LOGGER.error("AI {} 加载 ONNX 模块失败", fakePlayer.getName().getString(), e);
+            }
+        }
     }
 
     public static void setMoveEnabled(boolean enabled) {
@@ -98,6 +110,9 @@ public class AIPlayer {
     public static boolean isAllowTools() { return allowTools; }
     public static boolean isAllowToolBlocks() { return allowToolBlocks; }
 
+    public static void setEnableONNX(boolean enable) { enableONNX = enable; }
+    public static boolean isEnableONNX() { return enableONNX; }
+
     public void setBehavior(AIBehavior newBehavior) {
         this.behavior = newBehavior;
         if (newBehavior == AIBehavior.IDLE && isMoving) {
@@ -114,6 +129,39 @@ public class AIPlayer {
         return fakePlayer;
     }
 
+    public AIPersonality getPersonality() { return personality; }
+
+    public int getAttackCooldown() { return attackCooldown; }
+    public void setAttackCooldown(int cooldown) { attackCooldown = cooldown; }
+
+    public void jump() {
+        EntityPlayerActionPack actionPack = ((ServerPlayerInterface) fakePlayer).getActionPack();
+        actionPack.start(ActionType.JUMP, Action.once());
+    }
+
+    public void attackEntity(LivingEntity target) {
+        if (target == null || !target.isAlive()) return;
+        double distSq = fakePlayer.squaredDistanceTo(target);
+        if (distSq > ACTION_DISTANCE * ACTION_DISTANCE) {
+            lookAt(target.getPos());
+            if (!isMoving) startMoving();
+            setSprinting(true);
+            return;
+        }
+        if (isMoving) stopMoving();
+        setSprinting(false);
+        isAttacking = true;
+        equipBestWeapon();
+        lookAt(target.getPos());
+        fakePlayer.swingHand(Hand.MAIN_HAND);
+        fakePlayer.attack(target);
+        isAttacking = false;
+        LOGGER.info("AI {} 攻击了 {}", fakePlayer.getName().getString(), target.getName().getString());
+        if (RANDOM.nextDouble() < 0.3) {
+            SpeechManager.say(this, "combat.attack", Collections.emptyMap());
+        }
+    }
+
     public void onAttacked(LivingEntity attacker) {
         if (attacker == null) return;
         if (attackCooldown > 0) return;
@@ -125,21 +173,16 @@ public class AIPlayer {
             SpeechManager.say(this, "combat.hurt", Collections.emptyMap());
         }
     }
-    public AIPersonality getPersonality() { return personality; }
 
     // ---------------------- 装备系统 ----------------------
-    // 评估一件盔甲的分数（护甲 + 韧性 + 附魔）
-    // 评估一件盔甲的分数（仅基于护甲值和韧性，暂不考虑附魔）
     private float getArmorScore(ItemStack stack) {
         if (!(stack.getItem() instanceof ArmorItem)) return 0;
         ArmorItem armor = (ArmorItem) stack.getItem();
         return armor.getProtection() + armor.getToughness();
     }
 
-    // 自动穿上背包中最好的盔甲（按部位）
     private void equipBestArmor() {
         PlayerInventory inv = fakePlayer.getInventory();
-        // 盔甲槽位顺序: 0=脚, 1=腿, 2=胸, 3=头
         for (int slotIndex = 0; slotIndex < 4; slotIndex++) {
             ItemStack current = inv.armor.get(slotIndex);
             float bestScore = getArmorScore(current);
@@ -173,43 +216,7 @@ public class AIPlayer {
         }
     }
 
-    private ArmorItem.Type getSlotType(int slot) {
-        switch (slot) {
-            case 5: return ArmorItem.Type.HELMET;
-            case 6: return ArmorItem.Type.CHESTPLATE;
-            case 7: return ArmorItem.Type.LEGGINGS;
-            case 8: return ArmorItem.Type.BOOTS;
-            default: return null;
-        }
-    }
-
-    // ---------------------- 战斗 ----------------------
-    private void attackEntity(LivingEntity target) {
-        if (target == null || !target.isAlive()) return;
-        double distSq = fakePlayer.squaredDistanceTo(target);
-        if (distSq > ACTION_DISTANCE * ACTION_DISTANCE) {
-            // 移动接近
-            lookAt(target.getPos());
-            if (!isMoving) startMoving();
-            setSprinting(true);
-            return;
-        }
-        // 距离足够，停止移动并攻击
-        if (isMoving) stopMoving();
-        setSprinting(false);
-        isAttacking = true;
-        equipBestWeapon();
-        lookAt(target.getPos());
-        fakePlayer.swingHand(Hand.MAIN_HAND);
-        fakePlayer.attack(target);
-        isAttacking = false;
-        LOGGER.info("AI {} 攻击了 {}", fakePlayer.getName().getString(), target.getName().getString());
-        // 在攻击时随机说一句话
-        if (RANDOM.nextDouble() < 0.3) {
-            SpeechManager.say(this, "combat.attack", Collections.emptyMap());
-        }
-    }
-
+    // ---------------------- 战斗辅助 ----------------------
     private void equipBestWeapon() {
         if (!allowTools) return;
         PlayerInventory inv = fakePlayer.getInventory();
@@ -345,20 +352,17 @@ public class AIPlayer {
             if (targetMiningPos == null) return;
             miningProgress = 0;
             equipBestPickaxeForBlock(world.getBlockState(targetMiningPos).getBlock());
-            // 挖掘开始发言
-            Map<String,String> placeholders = new HashMap<>();
+            Map<String, String> placeholders = new HashMap<>();
             placeholders.put("ore", world.getBlockState(targetMiningPos).getBlock().getName().getString());
             SpeechManager.say(this, "mining.start", placeholders);
         }
         double distSq = fakePlayer.getPos().squaredDistanceTo(Vec3d.ofCenter(targetMiningPos));
         if (distSq > ACTION_DISTANCE * ACTION_DISTANCE) {
-            // 移动接近
             lookAt(Vec3d.ofCenter(targetMiningPos));
             if (!isMoving) startMoving();
             setSprinting(true);
             return;
         }
-        // 停止移动，开始挖掘
         if (isMoving) stopMoving();
         setSprinting(false);
         lookAt(Vec3d.ofCenter(targetMiningPos));
@@ -369,6 +373,7 @@ public class AIPlayer {
                 if (world.getBlockState(targetMiningPos).isAir()) {
                     targetMiningPos = null;
                     miningCooldown = 60;
+                    SpeechManager.say(this, "mining.finish", Collections.emptyMap());
                 } else {
                     miningProgress = 0;
                 }
@@ -387,10 +392,11 @@ public class AIPlayer {
             equipCooldown--;
         }
 
+        // 行为模式移动控制
         switch (behavior) {
             case IDLE:
                 if (isMoving) stopMoving();
-                return;
+                break;
             case FOLLOW:
                 followNearestPlayer();
                 break;
@@ -400,6 +406,11 @@ public class AIPlayer {
             case FRIENDLY:
                 friendlyTick();
                 break;
+        }
+
+        // ONNX 附加动作决策（不影响移动）
+        if (enableONNX && onnxModule != null) {
+            onnxModule.tick(this);
         }
     }
 
@@ -422,9 +433,7 @@ public class AIPlayer {
                 break;
             case MINE_ORE:
                 mineNearbyOre();
-                if (targetMiningPos == null) {
-                    taskCooldown = 0;
-                }
+                if (targetMiningPos == null) taskCooldown = 0;
                 break;
             case FOLLOW_PLAYER:
                 followNearestPlayer();
@@ -455,15 +464,11 @@ public class AIPlayer {
     }
 
     private void followNearestPlayer() {
-        if (followRetryCooldown > 0) {
-            followRetryCooldown--;
-        }
+        if (followRetryCooldown > 0) followRetryCooldown--;
         PlayerEntity target = null;
         if (followTargetId != null) {
             target = world.getPlayerByUuid(followTargetId);
-            if (target == null || target.isSpectator() || target.isRemoved()) {
-                followTargetId = null;
-            }
+            if (target == null || target.isSpectator() || target.isRemoved()) followTargetId = null;
         }
         if (followTargetId == null && followRetryCooldown == 0) {
             List<PlayerEntity> validPlayers = world.getPlayers().stream()
@@ -480,18 +485,16 @@ public class AIPlayer {
                 followTargetId = null;
             }
         }
-        if (followTargetId != null) {
-            target = world.getPlayerByUuid(followTargetId);
-        }
+        if (followTargetId != null) target = world.getPlayerByUuid(followTargetId);
         if (target == null) {
             if (isMoving) stopMoving();
             return;
         }
 
-        // 移动逻辑
         lookAt(target.getPos());
         double dist = fakePlayer.distanceTo(target);
         double stopDistance = followDistance * STOP_DISTANCE_RATIO;
+
         if (dist > followDistance) {
             avoidObstaclesAndJump();
             if (!isMoving) startMoving();
@@ -571,9 +574,7 @@ public class AIPlayer {
         Vec3d pos = fakePlayer.getPos();
         float yaw = fakePlayer.getYaw();
         Vec3d forward = new Vec3d(Math.sin(Math.toRadians(yaw)), 0, Math.cos(Math.toRadians(yaw)));
-        // 检测方向：前、左前45、右前45
         Vec3d[] directions = {forward, rotate(forward, 45), rotate(forward, -45)};
-
         for (Vec3d dir : directions) {
             for (double d = 0.5; d <= 1.5; d += 0.5) {
                 Vec3d checkPos = pos.add(dir.multiply(d)).add(0, 0.5, 0);
@@ -584,7 +585,6 @@ public class AIPlayer {
                         jump();
                         return;
                     }
-                    // 非跳跃障碍物，转向
                     float newYaw = yaw + (RANDOM.nextBoolean() ? 45 : -45);
                     fakePlayer.setYaw(newYaw);
                     fakePlayer.headYaw = newYaw;
@@ -594,7 +594,6 @@ public class AIPlayer {
         }
     }
 
-    // 辅助方法：旋转向量
     private Vec3d rotate(Vec3d vec, double angleDeg) {
         double rad = Math.toRadians(angleDeg);
         double cos = Math.cos(rad);
@@ -605,10 +604,7 @@ public class AIPlayer {
     }
 
     private void checkStuck() {
-        if (lastPos == null) {
-            lastPos = fakePlayer.getPos();
-            return;
-        }
+        if (lastPos == null) { lastPos = fakePlayer.getPos(); return; }
         double moved = fakePlayer.getPos().distanceTo(lastPos);
         if (moved < 0.05) {
             stuckCounter++;
@@ -631,15 +627,9 @@ public class AIPlayer {
         lastPos = fakePlayer.getPos();
     }
 
-    private void jump() {
-        EntityPlayerActionPack actionPack = ((ServerPlayerInterface) fakePlayer).getActionPack();
-        actionPack.start(ActionType.JUMP, Action.once());
-    }
-
     private void lookAt(Vec3d target) {
         Vec3d toTarget = target.subtract(fakePlayer.getPos());
-        double dx = toTarget.x, dz = toTarget.z;
-        double dy = toTarget.y;
+        double dx = toTarget.x, dz = toTarget.z, dy = toTarget.y;
         double horizontal = Math.sqrt(dx*dx + dz*dz);
         float yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
         float pitch = (float) Math.toDegrees(-Math.atan2(dy, horizontal));
@@ -655,7 +645,7 @@ public class AIPlayer {
         for (PlayerEntity player : world.getPlayers()) {
             if (player == fakePlayer) continue;
             if (player instanceof EntityPlayerMPFake) continue;
-            if (player.isSpectator()) continue; // 忽略旁观者
+            if (player.isSpectator()) continue;
             double d = player.distanceTo(fakePlayer);
             if (d < nearestDist) {
                 nearestDist = d;
@@ -681,5 +671,23 @@ public class AIPlayer {
         else if (personality == AIPersonality.SERIOUS) response += "收到任务：" + task + "，正在处理。";
         else response += "好的，我会尝试完成：" + task;
         fakePlayer.sendMessage(Text.literal(response));
+    }
+
+    // 公共刷新方法（供 NPCManager 调用）
+    public void reloadONNXModule() {
+        if (enableONNX) {
+            try {
+                if (onnxModule != null) onnxModule.close();
+                this.onnxModule = ONNXDecisionModule.createDefault();
+                LOGGER.info("AI {} ONNX 模块已重载", fakePlayer.getName().getString());
+            } catch (Exception e) {
+                LOGGER.error("AI {} 重载 ONNX 模块失败", fakePlayer.getName().getString(), e);
+            }
+        } else {
+            if (onnxModule != null) {
+                try { onnxModule.close(); } catch (Exception ignored) {}
+                onnxModule = null;
+            }
+        }
     }
 }

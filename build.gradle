@@ -44,6 +44,7 @@ dependencies {
 
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     modImplementation "carpet:fabric-carpet:1.20-1.4.112+v230608"
+    modImplementation "com.microsoft.onnxruntime:onnxruntime:1.23.0"
 }
 
 processResources {

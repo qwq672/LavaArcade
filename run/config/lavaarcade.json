@@ -7,5 +7,6 @@
   "enableOnlineSkin": true,
   "defaultSkinChance": 100,
   "enableSpeech": true,
-  "enableRespawn": true
+  "enableRespawn": true,
+  "enableONNX": true
 }

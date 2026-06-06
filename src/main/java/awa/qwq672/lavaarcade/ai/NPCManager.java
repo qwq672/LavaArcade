@@ -516,6 +516,22 @@ public class NPCManager {
                                     )
                             )
                     )
+                    .then(CommandManager.literal("onnxmodel_in_fakeplayer")
+                            .then(CommandManager.literal("true")
+                                    .executes(context -> {
+                                        AIPlayer.setEnableONNX(true);
+                                        context.getSource().sendMessage(Text.literal("§aONNX 模型已启用，请执行 /lava reloadai 或重启游戏以应用"));
+                                        return 1;
+                                    })
+                            )
+                            .then(CommandManager.literal("false")
+                                    .executes(context -> {
+                                        AIPlayer.setEnableONNX(false);
+                                        context.getSource().sendMessage(Text.literal("§aONNX 模型已禁用，请执行 /lava reloadai 或重启游戏以应用"));
+                                        return 1;
+                                    })
+                            )
+                    )
             );
         });
 

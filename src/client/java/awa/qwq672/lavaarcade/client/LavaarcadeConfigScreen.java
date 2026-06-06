@@ -33,6 +33,7 @@ public class LavaarcadeConfigScreen extends Screen {
     private boolean enableSpeech = true;
     private boolean enableRespawn = false;
     private TextFieldWidget aiCountField;
+    private boolean enableONNX = true;
 
     private int scrollY = 0;
     private int maxScroll = 0;
@@ -48,6 +49,7 @@ public class LavaarcadeConfigScreen extends Screen {
         public int defaultSkinChance = 11;
         public boolean enableSpeech = true;
         public boolean enableRespawn = false;
+        public boolean enableONNX;
     }
 
     protected LavaarcadeConfigScreen(Screen parent) {
@@ -61,6 +63,7 @@ public class LavaarcadeConfigScreen extends Screen {
             try (FileReader reader = new FileReader(CONFIG_FILE)) {
                 ConfigData data = GSON.fromJson(reader, ConfigData.class);
                 enableAI = data.enableAI;
+                enableONNX = data.enableONNX;
                 aiCount = data.aiCount;
                 renderDistanceChunks = data.renderDistanceChunks;
                 enableCustomSkin = data.enableCustomSkin;
@@ -86,6 +89,7 @@ public class LavaarcadeConfigScreen extends Screen {
         data.defaultSkinChance = defaultSkinChance;
         data.enableSpeech = enableSpeech;
         data.enableRespawn = enableRespawn;
+        data.enableONNX = enableONNX;
         try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
             GSON.toJson(data, writer);
         } catch (IOException e) {
@@ -166,6 +170,20 @@ public class LavaarcadeConfigScreen extends Screen {
                 .build(centerX - 100, y, 200, 20,
                         Text.translatable("text.lavaarcade.config.enable_respawn"),
                         (button, value) -> { enableRespawn = value; saveConfig(); }));
+        y += step;
+
+        // 在合适位置（例如重生开关之后）添加
+        this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableONNX)
+                .build(centerX - 100, y, 200, 20,
+                        Text.translatable("text.lavaarcade.config.enable_onnx"),
+                        (button, value) -> {
+                            enableONNX = value;
+                            saveConfig();
+                            // 显示提示信息
+                            if (client != null) {
+                                client.player.sendMessage(Text.literal("§e部分选项需要重新加载智能玩家才能生效"), false);
+                            }
+                        }));
         y += step;
 
         // 打开皮肤文件夹
