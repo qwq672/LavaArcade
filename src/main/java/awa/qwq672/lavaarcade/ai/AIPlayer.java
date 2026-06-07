@@ -1,5 +1,6 @@
 package awa.qwq672.lavaarcade.ai;
 
+import awa.qwq672.lavaarcade.game.GameManager;
 import carpet.fakes.ServerPlayerInterface;
 import carpet.helpers.EntityPlayerActionPack;
 import carpet.helpers.EntityPlayerActionPack.Action;
@@ -20,6 +21,7 @@ import net.minecraft.item.SwordItem;
 import net.minecraft.item.ToolMaterial;
 import net.minecraft.item.ToolMaterials;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
@@ -381,8 +383,41 @@ public class AIPlayer {
         }
     }
 
+    // ---------------------- PVP 游戏模式 ----------------------
+    private void pvpInGameTick() {
+        ServerPlayerEntity target = null;
+        double nearestDist = ACTION_DISTANCE * 2;
+        for (ServerPlayerEntity other : world.getPlayers()) {
+            if (other == fakePlayer) continue;
+            if (other.isSpectator()) continue;
+            if (GameManager.isPlayerInGame(other) && !GameManager.isPlayerEliminated(other)) {
+                double dist = fakePlayer.distanceTo(other);
+                if (dist < nearestDist) {
+                    nearestDist = dist;
+                    target = other;
+                }
+            }
+        }
+        if (target != null) {
+            lookAt(target.getPos());
+            if (nearestDist > ACTION_DISTANCE) {
+                if (!isMoving) startMoving();
+                setSprinting(true);
+            } else {
+                if (isMoving) stopMoving();
+                attackEntity(target);
+            }
+        } else {
+            if (isMoving) stopMoving();
+        }
+    }
+
     // ---------------------- 主 Tick ----------------------
     public void tick() {
+        if (GameManager.isPlayerInGame(fakePlayer)) {
+            pvpInGameTick();
+            return;
+        }
         if (!moveEnabled) return;
         if (attackCooldown > 0) attackCooldown--;
         if (equipCooldown <= 0) {

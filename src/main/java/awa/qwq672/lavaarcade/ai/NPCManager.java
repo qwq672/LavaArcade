@@ -1,5 +1,6 @@
 package awa.qwq672.lavaarcade.ai;
 
+import awa.qwq672.lavaarcade.game.GameManager;
 import carpet.patches.EntityPlayerMPFake;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -532,6 +533,35 @@ public class NPCManager {
                                     })
                             )
                     )
+                    .then(CommandManager.literal("game")
+                            .then(CommandManager.literal("start")
+                                    .then(CommandManager.argument("script", StringArgumentType.word())
+                                            .executes(context -> {
+                                                ServerCommandSource source = context.getSource();
+                                                ServerPlayerEntity player = source.getPlayer();
+                                                if (player == null) return 0;
+                                                String scriptName = StringArgumentType.getString(context, "script");
+                                                // 获取所有在线玩家（或指定玩家，此处简化为所有玩家）
+                                                List<ServerPlayerEntity> players = new ArrayList<>(source.getServer().getPlayerManager().getPlayerList());
+                                                GameManager.startGame(source.getServer(), scriptName, players);
+                                                return 1;
+                                            })
+                                    )
+                            )
+                            .then(CommandManager.literal("stop")
+                                    .executes(context -> {
+                                        ServerCommandSource source = context.getSource();
+                                        // 简单实现：停止第一个活动游戏
+                                        if (!GameManager.getActiveSessions().isEmpty()) {
+                                            UUID id = GameManager.getActiveSessions().iterator().next().id;
+                                            GameManager.stopGame(source.getServer(), id);
+                                        } else {
+                                            source.sendMessage(Text.literal("§c没有正在进行的游戏"));
+                                        }
+                                        return 1;
+                                    })
+                            )
+                    )
             );
         });
 
@@ -547,6 +577,7 @@ public class NPCManager {
                 ai.tick();
             }
             SpeechManager.tick(server, aiPlayers);
+            GameManager.tick(server);
         });
 
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> {

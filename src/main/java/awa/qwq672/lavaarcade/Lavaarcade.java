@@ -1,6 +1,7 @@
 package awa.qwq672.lavaarcade;
 
 import awa.qwq672.lavaarcade.ai.SpeechManager;
+import awa.qwq672.lavaarcade.game.GameManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
 import awa.qwq672.lavaarcade.ai.NPCManager;
@@ -29,6 +30,7 @@ public class Lavaarcade implements ModInitializer {
         SkinManager.init();
         NPCManager.init();
         SpeechManager.init();
+        GameManager.init();
 
         LOGGER.info("LavaArcade 主模组初始化完成");
     }

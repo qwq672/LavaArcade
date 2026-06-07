@@ -1,0 +1,46 @@
+{
+  "name": "PVP 击退平台",
+  "type": "pvp",
+  "region": {
+    "shape": "cube",
+    "from": [-15, 15, -15],
+    "to": [15, 10, 15]
+  },
+  "spawnPoints": [
+    [0, 65, 0],
+    [10, 65, 10],
+    [-10, 65, -10]
+  ],
+  "eliminationRule": {
+    "condition": "out_of_bounds",
+    "message": "{player} 被击退出平台"
+  },
+  "winCondition": {
+    "type": "last_survivor"
+  },
+  "scoreboard": {
+    "title": "§6§lPVP 击退榜",
+    "initialValue": 0
+  },
+  "timeLimit": 180,
+  "gameGear": {
+    "clearInventory": true,
+    "items": [
+      { "item": "minecraft:iron_sword", "count": 1, "slot": 0 },
+      { "item": "minecraft:shield", "count": 1, "slot": 1 }
+    ]
+  },
+  "invincibleInside": true,
+  "knockbackOnHit": true,
+  "fallDamage": false,
+  "allowSprint": true,
+  "allowSneak": true,
+  "respawnAfterElimination": false,
+  "healthRegen": false,
+  "startCommands": ["/say §a游戏开始，将对手击出平台！"],
+  "endCommands": ["/say §c游戏结束"],
+  "onEliminate": "/tellraw @a {\"text\":\"{player} 被淘汰\",\"color\":\"red\"}",
+  "onKill": "/tellraw @a {\"text\":\"{killer} 击退了 {victim}\",\"color\":\"yellow\"}",
+  "minPlayers": 2,
+  "maxPlayers": 8
+}

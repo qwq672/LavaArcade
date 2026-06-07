@@ -4,8 +4,12 @@
   "version": "${version}",
   "name": "LavaArcade",
   "description": "此模组提供了离线预设小游戏、智能玩家等功能，实现离线的环境下也能如同进入一个Minecraft小游戏服务器般轻松游玩。",
-  "authors": [],
-  "contact": {},
+  "authors": ["qwq672"],
+  "contact": {
+    "homepage": "https://lava.awa.lat",
+    "sources": "https://github.com/qwq672/LavaArcade",
+    "email": "i@awa.lat"
+  },
   "license": "MIT",
   "icon": "assets/lavaarcade/icon.png",
   "environment": "*",
