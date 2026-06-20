@@ -65,9 +65,8 @@ public class AIPlayer {
     private BlockPos targetMiningPos = null;
     private int miningProgress = 0;
 
-    // ONNX 模块
-    private ONNXDecisionModule onnxModule;
-    private static boolean enableONNX = false;
+    // Cortex 推理控制器
+    private AIController cortexController;
 
     // 自主决策相关
     private enum FriendlyTask {
@@ -85,14 +84,13 @@ public class AIPlayer {
         this.personality = AIPersonality.random();
         LOGGER.info("AI {} 性格: {}", fakePlayer.getName().getString(), personality.displayName);
 
-        if (enableONNX) {
+        AIConfig.ConfigData config = AIConfig.getConfig();
+        if (config.enableCortex) {
             try {
-                this.onnxModule = ONNXDecisionModule.createDefault();
-                if (this.onnxModule != null) {
-                    LOGGER.info("AI {} 已加载 ONNX 模块", fakePlayer.getName().getString());
-                }
+                this.cortexController = new AIController(fakePlayer, GameModeType.PVP);
+                LOGGER.info("AI {} 已启用 Cortex 推理", fakePlayer.getName().getString());
             } catch (Exception e) {
-                LOGGER.error("AI {} 加载 ONNX 模块失败", fakePlayer.getName().getString(), e);
+                LOGGER.error("AI {} 启用 Cortex 推理失败", fakePlayer.getName().getString(), e);
             }
         }
     }
@@ -111,9 +109,6 @@ public class AIPlayer {
     public static void setAllowToolBlocks(boolean enable) { allowToolBlocks = enable; }
     public static boolean isAllowTools() { return allowTools; }
     public static boolean isAllowToolBlocks() { return allowToolBlocks; }
-
-    public static void setEnableONNX(boolean enable) { enableONNX = enable; }
-    public static boolean isEnableONNX() { return enableONNX; }
 
     public void setBehavior(AIBehavior newBehavior) {
         this.behavior = newBehavior;
@@ -414,6 +409,11 @@ public class AIPlayer {
 
     // ---------------------- 主 Tick ----------------------
     public void tick() {
+        AIConfig.ConfigData config = AIConfig.getConfig();
+        if (config.enableCortex && cortexController != null && ONNXInference.isLoaded()) {
+            cortexController.tick();
+            return;
+        }
         if (GameManager.isPlayerInGame(fakePlayer)) {
             pvpInGameTick();
             return;
@@ -443,10 +443,6 @@ public class AIPlayer {
                 break;
         }
 
-        // ONNX 附加动作决策（不影响移动）
-        if (enableONNX && onnxModule != null) {
-            onnxModule.tick(this);
-        }
     }
 
     private void friendlyTick() {
@@ -706,23 +702,5 @@ public class AIPlayer {
         else if (personality == AIPersonality.SERIOUS) response += "收到任务：" + task + "，正在处理。";
         else response += "好的，我会尝试完成：" + task;
         fakePlayer.sendMessage(Text.literal(response));
-    }
-
-    // 公共刷新方法（供 NPCManager 调用）
-    public void reloadONNXModule() {
-        if (enableONNX) {
-            try {
-                if (onnxModule != null) onnxModule.close();
-                this.onnxModule = ONNXDecisionModule.createDefault();
-                LOGGER.info("AI {} ONNX 模块已重载", fakePlayer.getName().getString());
-            } catch (Exception e) {
-                LOGGER.error("AI {} 重载 ONNX 模块失败", fakePlayer.getName().getString(), e);
-            }
-        } else {
-            if (onnxModule != null) {
-                try { onnxModule.close(); } catch (Exception ignored) {}
-                onnxModule = null;
-            }
-        }
     }
 }

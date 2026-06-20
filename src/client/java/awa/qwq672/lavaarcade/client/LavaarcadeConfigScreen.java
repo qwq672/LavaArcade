@@ -1,6 +1,8 @@
 package awa.qwq672.lavaarcade.client;
 
 import awa.qwq672.lavaarcade.ai.SkinManager;
+import awa.qwq672.lavaarcade.client.gui.ModelScreen;
+import awa.qwq672.lavaarcade.client.gui.ScriptScreen;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.minecraft.client.gui.DrawContext;
@@ -34,6 +36,7 @@ public class LavaarcadeConfigScreen extends Screen {
     private boolean enableRespawn = false;
     private TextFieldWidget aiCountField;
     private boolean enableONNX = true;
+    private boolean enableCortex = false;
 
     private int scrollY = 0;
     private int maxScroll = 0;
@@ -50,6 +53,7 @@ public class LavaarcadeConfigScreen extends Screen {
         public boolean enableSpeech = true;
         public boolean enableRespawn = false;
         public boolean enableONNX;
+        public boolean enableCortex;
     }
 
     protected LavaarcadeConfigScreen(Screen parent) {
@@ -72,6 +76,7 @@ public class LavaarcadeConfigScreen extends Screen {
                 defaultSkinChance = data.defaultSkinChance;
                 enableSpeech = data.enableSpeech;
                 enableRespawn = data.enableRespawn;
+                enableCortex = data.enableCortex;
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -90,6 +95,7 @@ public class LavaarcadeConfigScreen extends Screen {
         data.enableSpeech = enableSpeech;
         data.enableRespawn = enableRespawn;
         data.enableONNX = enableONNX;
+        data.enableCortex = enableCortex;
         try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
             GSON.toJson(data, writer);
         } catch (IOException e) {
@@ -186,9 +192,33 @@ public class LavaarcadeConfigScreen extends Screen {
                         }));
         y += step;
 
+        this.addDrawableChild(CyclingButtonWidget.onOffBuilder(enableCortex)
+                .build(centerX - 100, y, 200, 20,
+                        Text.translatable("text.lavaarcade.config.enable_cortex"),
+                        (button, value) -> {
+                            enableCortex = value;
+                            saveConfig();
+                            if (client != null) {
+                                client.player.sendMessage(Text.literal("§e部分选项需要重新加载智能玩家才能生效"), false);
+                            }
+                        }));
+        y += step;
+
         // 打开皮肤文件夹
         this.addDrawableChild(ButtonWidget.builder(Text.translatable("text.lavaarcade.config.open_skin_folder"), button -> SkinManager.openSkinFolder())
                 .dimensions(centerX - 100, y, 200, 20).build());
+        y += step;
+
+        // 模型管理
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("模型管理"), button -> {
+            if (client != null) client.setScreen(new ModelScreen(this));
+        }).dimensions(centerX - 100, y, 200, 20).build());
+        y += step;
+
+        // 脚本管理
+        this.addDrawableChild(ButtonWidget.builder(Text.literal("脚本管理"), button -> {
+            if (client != null) client.setScreen(new ScriptScreen(this));
+        }).dimensions(centerX - 100, y, 200, 20).build());
         y += step;
 
         // 返回按钮

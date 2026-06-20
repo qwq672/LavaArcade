@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "inputDim": 18,
+  "outputDim": 8,
+  "featureOrder": [
+    "health", "food", "x", "z", "y",
+    "vel_x", "vel_z", "on_ground", "in_water", "yaw", "pitch",
+    "enemy_dist", "enemy_angle", "attack_cooldown", "held_item",
+    "mode_pvp", "mode_minigame", "mode_survival"
+  ],
+  "actionOrder": [
+    "jump", "sneak", "attack", "use",
+    "forward", "back", "left", "right"
+  ],
+  "extra": {
+    "lavaarcade_version": 1,
+    "threshold": 0.5,
+    "inference_interval": 2,
+    "description": "PVP 战斗模型，基于 Cortex 数据训练（18维）",
+    "author": "qwq672",
+    "date": "2026-06-20"
+  }
+}

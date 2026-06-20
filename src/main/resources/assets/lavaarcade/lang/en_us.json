@@ -11,5 +11,7 @@
   "text.lavaarcade.config.open_skin_folder": "Open custom skin folder",
   "text.lavaarcade.config.render_distance": "AI Render Distance: %d chunks",
   "text.lavaarcade.config.title": "LavaArcade Config",
-  "text.lavaarcade.config.enable_respawn": "FakePlayer Respawn"
+  "text.lavaarcade.config.enable_respawn": "FakePlayer Respawn",
+  "text.lavaarcade.config.enable_onnx": "Enable ONNX Model",
+  "text.lavaarcade.config.enable_cortex": "Enable Cortex Inference (Experimental)"
 }

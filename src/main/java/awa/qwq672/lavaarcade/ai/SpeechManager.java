@@ -75,5 +75,6 @@ public class SpeechManager {
     }
 
     public static void init() {
+        SpeechLoader.init();
     }
 }

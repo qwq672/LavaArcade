@@ -79,7 +79,6 @@ public class NPCManager {
                 "/player " + name + " spawn"
         );
         for (int i = 0; i < 10; i++) {
-            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
             ServerPlayerEntity fake = referencePlayer.getServer().getPlayerManager().getPlayer(name);
             if (fake instanceof EntityPlayerMPFake) {
                 EntityPlayerMPFake fakePlayer = (EntityPlayerMPFake) fake;
@@ -184,6 +183,9 @@ public class NPCManager {
         source.sendMessage(Text.literal("§e/lava pf <假人名字或#all> <动作> §7- 控制假人行为"));
         source.sendMessage(Text.literal("§e  动作: follow, go_alone, stop, continue, friendly"));
         source.sendMessage(Text.literal("§e  例如: /lava pf #all follow"));
+        source.sendMessage(Text.literal("§e/lava model list §7- 列出所有可用模型"));
+        source.sendMessage(Text.literal("§e/lava model load <名称> §7- 切换模型"));
+        source.sendMessage(Text.literal("§e/lava model rescan §7- 重新扫描模型目录"));
         source.sendMessage(Text.literal("§e/spawnai §7- 手动生成一个假人"));
         return 1;
     }
@@ -291,7 +293,6 @@ public class NPCManager {
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             serverStarted = true;
             server.execute(() -> {
-                try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
                 for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
                     generateAIsForPlayer(player);
                 }
@@ -303,7 +304,6 @@ public class NPCManager {
             if (player instanceof EntityPlayerMPFake) return;
             if (serverStarted) {
                 server.execute(() -> {
-                    try { Thread.sleep(100); } catch (InterruptedException ignored) {}
                     generateAIsForPlayer(player);
                 });
             }
@@ -517,18 +517,37 @@ public class NPCManager {
                                     )
                             )
                     )
-                    .then(CommandManager.literal("onnxmodel_in_fakeplayer")
-                            .then(CommandManager.literal("true")
+                    .then(CommandManager.literal("model")
+                            .then(CommandManager.literal("list")
                                     .executes(context -> {
-                                        AIPlayer.setEnableONNX(true);
-                                        context.getSource().sendMessage(Text.literal("§aONNX 模型已启用，请执行 /lava reloadai 或重启游戏以应用"));
+                                        ServerCommandSource source = context.getSource();
+                                        Collection<String> names = ModelManager.getModelNames();
+                                        if (names.isEmpty()) {
+                                            source.sendMessage(Text.literal("§7未找到任何模型"));
+                                        } else {
+                                            source.sendMessage(Text.literal("§a可用模型:"));
+                                            for (String name : names) {
+                                                boolean isCurrent = name.equals(ModelManager.getCurrentModelName());
+                                                source.sendMessage(Text.literal((isCurrent ? "§e→ " : "§7  ") + name));
+                                            }
+                                        }
                                         return 1;
                                     })
                             )
-                            .then(CommandManager.literal("false")
+                            .then(CommandManager.literal("load")
+                                    .then(CommandManager.argument("name", StringArgumentType.word())
+                                            .suggests((context, builder) -> net.minecraft.command.CommandSource.suggestMatching(ModelManager.getModelNames(), builder))
+                                            .executes(context -> {
+                                                String name = StringArgumentType.getString(context, "name");
+                                                ModelManager.setCurrentModel(name, context.getSource());
+                                                return 1;
+                                            })
+                                    )
+                            )
+                            .then(CommandManager.literal("rescan")
                                     .executes(context -> {
-                                        AIPlayer.setEnableONNX(false);
-                                        context.getSource().sendMessage(Text.literal("§aONNX 模型已禁用，请执行 /lava reloadai 或重启游戏以应用"));
+                                        ModelManager.scanModels();
+                                        context.getSource().sendMessage(Text.literal("§a已重新扫描模型"));
                                         return 1;
                                     })
                             )

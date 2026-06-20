@@ -3,55 +3,96 @@ package awa.qwq672.lavaarcade.game;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class GameManager {
-    private static final Path GAME_SCRIPTS_DIR = Paths.get("config", "lavaarcade", "games");
+    private static final Logger LOGGER = LoggerFactory.getLogger("GameManager");
+    private static final Path GAME_SCRIPTS_DIR = FabricLoader.getInstance().getGameDir()
+            .resolve("LavaArcade").resolve("games");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Map<UUID, GameSession> activeSessions = new ConcurrentHashMap<>();
+    private static final Map<String, String> scriptCache = new LinkedHashMap<>();
     private static boolean eventRegistered = false;
 
     public static void init() {
         try {
             Files.createDirectories(GAME_SCRIPTS_DIR);
         } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.error("无法创建游戏脚本目录", e);
         }
+        reloadScripts();
         registerDeathEvent();
     }
 
-    private static void registerDeathEvent() {
-        if (eventRegistered) return;
-        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
-            if (entity instanceof ServerPlayerEntity && source.getAttacker() instanceof ServerPlayerEntity) {
-                ServerPlayerEntity victim = (ServerPlayerEntity) entity;
-                ServerPlayerEntity killer = (ServerPlayerEntity) source.getAttacker();
-                recordKill(killer, victim);
+    public static void reloadScripts() {
+        scriptCache.clear();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(GAME_SCRIPTS_DIR, "*.json")) {
+            for (Path p : stream) {
+                String name = p.getFileName().toString().replace(".json", "");
+                scriptCache.put(name, "external:" + p.toString());
             }
-        });
-        eventRegistered = true;
+        } catch (IOException ignored) {}
+        String[] builtinScripts = {"pvp_platform"};
+        for (String name : builtinScripts) {
+            if (!scriptCache.containsKey(name)) {
+                String resourcePath = "/assets/lavaarcade/games/" + name + ".json";
+                try (InputStream is = GameManager.class.getResourceAsStream(resourcePath)) {
+                    if (is != null) {
+                        scriptCache.put(name, "jar:" + resourcePath);
+                    }
+                } catch (IOException ignored) {}
+            }
+        }
+        LOGGER.info("脚本扫描完成，找到 {} 个脚本", scriptCache.size());
     }
 
     public static GameScript loadScript(String scriptName) throws IOException {
-        Path scriptFile = GAME_SCRIPTS_DIR.resolve(scriptName + ".json");
-        if (!Files.exists(scriptFile)) {
+        String source = scriptCache.get(scriptName);
+        if (source == null) {
             throw new FileNotFoundException("脚本不存在: " + scriptName);
         }
-        try (Reader reader = Files.newBufferedReader(scriptFile)) {
-            return GSON.fromJson(reader, GameScript.class);
+        if (source.startsWith("external:")) {
+            Path path = Paths.get(source.substring(9));
+            try (Reader reader = Files.newBufferedReader(path)) {
+                return GSON.fromJson(reader, GameScript.class);
+            }
+        } else if (source.startsWith("jar:")) {
+            String resourcePath = source.substring(4);
+            try (InputStream is = GameManager.class.getResourceAsStream(resourcePath)) {
+                if (is == null) {
+                    throw new FileNotFoundException("JAR 内资源不存在: " + resourcePath);
+                }
+                try (Reader reader = new InputStreamReader(is)) {
+                    return GSON.fromJson(reader, GameScript.class);
+                }
+            }
         }
+        throw new IOException("未知脚本来源: " + source);
+    }
+
+    public static Set<String> getAvailableScripts() {
+        return scriptCache.keySet();
+    }
+
+    public static boolean hasActiveGame() {
+        return !activeSessions.isEmpty();
     }
 
     public static void startGame(MinecraftServer server, String scriptName, List<ServerPlayerEntity> players) {
+        if (hasActiveGame()) {
+            broadcastError(server, "已有游戏正在进行中，请先停止");
+            return;
+        }
         try {
             GameScript script = loadScript(scriptName);
             if (players.size() < script.minPlayers) {
@@ -65,7 +106,7 @@ public class GameManager {
             GameSession session = new GameSession(server, script, players);
             activeSessions.put(session.id, session);
         } catch (Exception e) {
-            e.printStackTrace();
+            LOGGER.error("启动游戏失败", e);
             broadcastError(server, "启动游戏失败: " + e.getMessage());
         }
     }
@@ -117,5 +158,17 @@ public class GameManager {
 
     public static Collection<GameSession> getActiveSessions() {
         return activeSessions.values();
+    }
+
+    private static void registerDeathEvent() {
+        if (eventRegistered) return;
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+            if (entity instanceof ServerPlayerEntity && source.getAttacker() instanceof ServerPlayerEntity) {
+                ServerPlayerEntity victim = (ServerPlayerEntity) entity;
+                ServerPlayerEntity killer = (ServerPlayerEntity) source.getAttacker();
+                recordKill(killer, victim);
+            }
+        });
+        eventRegistered = true;
     }
 }

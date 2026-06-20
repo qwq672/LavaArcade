@@ -11,5 +11,7 @@
     "text.lavaarcade.config.enable_speech": "启用假人发言",
     "text.lavaarcade.button.settings": "LavaArcade 设置",
     "gui.back": "返回",
-    "text.lavaarcade.config.enable_respawn": "假人死亡重生"
+    "text.lavaarcade.config.enable_respawn": "假人死亡重生",
+    "text.lavaarcade.config.enable_onnx": "启用 ONNX 模型",
+    "text.lavaarcade.config.enable_cortex": "启用 Cortex 推理（实验性）"
 }

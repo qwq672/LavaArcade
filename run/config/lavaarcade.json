@@ -8,5 +8,6 @@
   "defaultSkinChance": 100,
   "enableSpeech": true,
   "enableRespawn": true,
-  "enableONNX": true
+  "enableONNX": true,
+  "enableCortex": true
 }

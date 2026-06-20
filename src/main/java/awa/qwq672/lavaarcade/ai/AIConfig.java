@@ -20,6 +20,8 @@ public class AIConfig {
         public int defaultSkinChance = 11;
         public boolean enableSpeech = true;
         public boolean enableRespawn = false;
+        public boolean enableONNX = false;
+        public boolean enableCortex = false;
     }
 
     public static ConfigData getConfig() {

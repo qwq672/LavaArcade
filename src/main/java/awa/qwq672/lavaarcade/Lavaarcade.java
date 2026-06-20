@@ -1,5 +1,7 @@
 package awa.qwq672.lavaarcade;
 
+import awa.qwq672.lavaarcade.ai.AIConfig;
+import awa.qwq672.lavaarcade.ai.ModelManager;
 import awa.qwq672.lavaarcade.ai.SpeechManager;
 import awa.qwq672.lavaarcade.game.GameManager;
 import net.fabricmc.api.ModInitializer;
@@ -14,6 +16,9 @@ import java.nio.file.Path;
 
 public class Lavaarcade implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger("lavaarcade");
+    public static final int INTERNAL_VERSION = 1;
+    public static final String EXTERNAL_VERSION = "v260620-2";
+
     public static Path SKINS_DIR;
 
     @Override
@@ -28,10 +33,19 @@ public class Lavaarcade implements ModInitializer {
         }
 
         SkinManager.init();
-        NPCManager.init();
         SpeechManager.init();
+        ModelManager.init();
+        NPCManager.init();
         GameManager.init();
 
-        LOGGER.info("LavaArcade 主模组初始化完成");
+        AIConfig.ConfigData config = AIConfig.getConfig();
+        if (config.enableCortex) {
+            String defaultModel = ModelManager.getCurrentModelName();
+            if (defaultModel != null) {
+                ModelManager.setCurrentModel(defaultModel, null);
+            }
+        }
+
+        LOGGER.info("LavaArcade 主模组初始化完成 (版本: {}, 内部版本: {})", EXTERNAL_VERSION, INTERNAL_VERSION);
     }
 }

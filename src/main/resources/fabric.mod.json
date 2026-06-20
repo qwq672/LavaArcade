@@ -4,11 +4,21 @@
   "version": "${version}",
   "name": "LavaArcade",
   "description": "此模组提供了离线预设小游戏、智能玩家等功能，实现离线的环境下也能如同进入一个Minecraft小游戏服务器般轻松游玩。",
-  "authors": ["qwq672"],
+  "authors": [
+    {
+      "name": "qwq672",
+      "email": "i@awa.lat",
+      "github": "https://github.com/qwq672",
+      "bilirubin": "https://space.bilibili.com/700347223",
+      "homepage": "http://awa.lat"
+    }
+  ],
   "contact": {
+    "github": "https://github.com/qwq672/LavaArcade",
     "homepage": "https://lava.awa.lat",
-    "sources": "https://github.com/qwq672/LavaArcade",
-    "email": "i@awa.lat"
+    "issue": "https://github.com/qwq672/LavaArcade/issues",
+    "release": "https://github.com/qwq672/LavaArcade/releases",
+    "sources": "https://github.com/qwq672/LavaArcade"
   },
   "license": "MIT",
   "icon": "assets/lavaarcade/icon.png",
@@ -23,6 +33,15 @@
     "main": [
       "awa.qwq672.lavaarcade.Lavaarcade"
     ]
+  },
+  "custom": {
+    "modmenu": {
+      "links": {
+        "modmenu.donate": "https://www.ifdian.net/a/qwq672",
+        "modmenu.donate.wechat": "https://awa.lat/wechat_donate.png",
+        "modmenu.github_releases": "https://github.com/qwq672/LavaArcade/releases"
+      }
+    }
   },
   "mixins": [
     "lavaarcade.mixins.json.bak",
